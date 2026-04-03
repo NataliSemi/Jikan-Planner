@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>時間 — Jikan Planner</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@300;400;600&family=Noto+Sans+JP:wght@300;400&family=Shippori+Mincho:wght@400;600;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+<!-- Washi paper grain overlay -->
+<div class="paper-grain"></div>
+
+<!-- Ink bleed decorations -->
+<div class="ink-bleed ink-bleed--tl"></div>
+<div class="ink-bleed ink-bleed--br"></div>
+
+<div class="app-shell">
+
+  <!-- LEFT PANEL: Navigation & Sensei -->
+  <aside class="sidebar">
+    <header class="sidebar__header">
+      <div class="mon-seal">時</div>
+      <div class="brand">
+        <h1 class="brand__title">時間</h1>
+        <p class="brand__sub">Jikan Planner</p>
+      </div>
+    </header>
+
+    <nav class="sidebar__nav">
+      <button class="nav-btn active" data-panel="today" onclick="showPanel('today', this)">
+        <span class="nav-btn__kanji">今</span>
+        <span class="nav-btn__label">Today</span>
+      </button>
+      <button class="nav-btn" data-panel="tasks" onclick="showPanel('tasks', this)">
+        <span class="nav-btn__kanji">業</span>
+        <span class="nav-btn__label">All Tasks</span>
+      </button>
+      <button class="nav-btn" data-panel="add" onclick="showPanel('add', this)">
+        <span class="nav-btn__kanji">新</span>
+        <span class="nav-btn__label">New Task</span>
+      </button>
+      <button class="nav-btn" data-panel="sensei" onclick="showPanel('sensei', this)">
+        <span class="nav-btn__kanji">師</span>
+        <span class="nav-btn__label">Sensei AI</span>
+      </button>
+      <button class="nav-btn" data-panel="pomodoro" onclick="showPanel('pomodoro', this)">
+        <span class="nav-btn__kanji">集</span>
+        <span class="nav-btn__label">Pomodoro</span>
+      </button>
+      <button class="nav-btn" data-panel="stats" onclick="showPanel('stats', this)">
+        <span class="nav-btn__kanji">績</span>
+        <span class="nav-btn__label">Progress</span>
+      </button>
+    </nav>
+
+    <div class="sidebar__mood">
+      <p class="mood-label">今日の気分 · Today's Energy</p>
+      <div class="mood-grid">
+        <div class="mood-row">
+          <span>気力</span>
+          <div class="mood-dots" data-field="energy">
+            <button class="mdot" data-val="low" onclick="setMood('energy','low',this)">●</button>
+            <button class="mdot" data-val="medium" onclick="setMood('energy','medium',this)">●</button>
+            <button class="mdot" data-val="high" onclick="setMood('energy','high',this)">●</button>
+          </div>
+        </div>
+        <div class="mood-row">
+          <span>集中</span>
+          <div class="mood-dots" data-field="focus">
+            <button class="mdot" data-val="low" onclick="setMood('focus','low',this)">●</button>
+            <button class="mdot" data-val="medium" onclick="setMood('focus','medium',this)">●</button>
+            <button class="mdot" data-val="high" onclick="setMood('focus','high',this)">●</button>
+          </div>
+        </div>
+        <div class="mood-row">
+          <span>心</span>
+          <div class="mood-dots" data-field="mood">
+            <button class="mdot" data-val="low" onclick="setMood('mood','low',this)">●</button>
+            <button class="mdot" data-val="medium" onclick="setMood('mood','medium',this)">●</button>
+            <button class="mdot" data-val="high" onclick="setMood('mood','high',this)">●</button>
+          </div>
+        </div>
+      </div>
+      <button class="btn-ink btn-ink--sm" onclick="saveMood()">記録する · Save</button>
+    </div>
+
+    <div class="sidebar__footer">
+      <!-- Theme switcher -->
+      <div class="theme-switcher">
+        <button class="theme-btn" id="theme-light-btn" onclick="setTheme('light')" title="光 — Light Mode">
+          <span class="theme-btn__swatch theme-btn__swatch--light"></span>
+          <span class="theme-btn__label">光 Light</span>
+        </button>
+        <button class="theme-btn active" id="theme-dark-btn" onclick="setTheme('dark')" title="夜 — Dark Mode">
+          <span class="theme-btn__swatch theme-btn__swatch--dark"></span>
+          <span class="theme-btn__label">夜 Dark</span>
+        </button>
+      </div>
+      <div class="haiku-block" id="daily-haiku">
+        一日一歩<br>
+        <em>One day, one step—</em><br>
+        前進あるのみ
+      </div>
+    </div>
+  </aside>
+
+  <!-- RIGHT: Main content panels -->
+  <main class="main-content">
+
+    <!-- Divider line with seal -->
+    <div class="vertical-rule">
+      <div class="vr-seal">◆</div>
+    </div>
+
+    <!-- TODAY PANEL -->
+    <section id="panel-today" class="panel panel--active">
+      <div class="panel__header">
+        <div class="panel__header-left">
+          <h2 class="panel__title">今日 · Today</h2>
+          <p class="panel__date" id="today-date"></p>
+        </div>
+        <div class="panel__actions">
+          <button class="btn-ink btn-ink--sm" onclick="loadTodayTasks()">更新 · Refresh</button>
+        </div>
+      </div>
+
+      <div class="timeline" id="today-timeline">
+        <div class="loading-scroll">読み込み中...</div>
+      </div>
+    </section>
+
+    <!-- ALL TASKS PANEL -->
+    <section id="panel-tasks" class="panel">
+      <div class="panel__header">
+        <h2 class="panel__title">業務 · All Tasks</h2>
+        <div class="filter-bar">
+          <input type="date" id="filter-date" class="ink-input ink-input--sm" onchange="loadAllTasks()">
+          <select id="filter-type" class="ink-select ink-select--sm" onchange="loadAllTasks()">
+            <option value="">全て · All</option>
+            <option value="learning">学習 Learning</option>
+            <option value="reading">読書 Reading</option>
+            <option value="playing">遊び Playing</option>
+            <option value="exercise">運動 Exercise</option>
+            <option value="rest">休息 Rest</option>
+            <option value="creative">創造 Creative</option>
+            <option value="social">交流 Social</option>
+          </select>
+        </div>
+      </div>
+      <div class="task-scroll" id="all-tasks-list">
+        <div class="loading-scroll">読み込み中...</div>
+      </div>
+    </section>
+
+    <!-- ADD TASK PANEL -->
+    <section id="panel-add" class="panel">
+      <div class="panel__header">
+        <h2 class="panel__title">新しい業務 · New Task</h2>
+      </div>
+      <div class="form-scroll">
+        <div class="form-card">
+          <div class="form-field">
+            <label class="form-label">題名 · Title</label>
+            <input type="text" id="task-title" class="ink-input" placeholder="What will you do?" />
+          </div>
+          <div class="form-row">
+            <div class="form-field">
+              <label class="form-label">種類 · Type</label>
+              <select id="task-type" class="ink-select">
+                <option value="learning">学習 Learning</option>
+                <option value="reading">読書 Reading</option>
+                <option value="playing">遊び Playing</option>
+                <option value="exercise">運動 Exercise</option>
+                <option value="rest">休息 Rest</option>
+                <option value="creative">創造 Creative</option>
+                <option value="social">交流 Social</option>
+              </select>
+            </div>
+            <div class="form-field">
+              <label class="form-label">時間 · Duration (min)</label>
+              <input type="number" id="task-duration" class="ink-input" value="30" min="5" max="480"/>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-field">
+              <label class="form-label">日付 · Date</label>
+              <input type="date" id="task-date" class="ink-input"/>
+            </div>
+            <div class="form-field">
+              <label class="form-label">時刻 · Time</label>
+              <input type="time" id="task-time" class="ink-input"/>
+            </div>
+          </div>
+          <div class="form-field">
+            <label class="form-label">備考 · Notes</label>
+            <textarea id="task-notes" class="ink-textarea" rows="3" placeholder="Any thoughts..."></textarea>
+          </div>
+          <button class="btn-ink btn-ink--full" onclick="createTask()">
+            <span class="btn-kanji">記</span> Register Task
+          </button>
+          <div id="add-feedback" class="feedback-msg"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SENSEI AI PANEL -->
+    <section id="panel-sensei" class="panel">
+      <div class="panel__header">
+        <h2 class="panel__title">時間先生 · Sensei AI</h2>
+        <p class="panel__subtitle">Wisdom for your 一日 (ichijitsu — one day)</p>
+      </div>
+
+      <div class="sensei-grid">
+        <div class="sensei-card" onclick="fetchAI('schedule')">
+          <div class="sensei-card__kanji">予</div>
+          <h3>Schedule Advice</h3>
+          <p>Receive a mindful plan for your day</p>
+        </div>
+        <div class="sensei-card" onclick="fetchAI('suggest')">
+          <div class="sensei-card__kanji">勧</div>
+          <h3>Activity Suggestion</h3>
+          <p>What suits your current energy?</p>
+        </div>
+        <div class="sensei-card" onclick="fetchAI('remind')">
+          <div class="sensei-card__kanji">励</div>
+          <h3>Gentle Reminder</h3>
+          <p>A nudge from your wise mentor</p>
+        </div>
+      </div>
+
+      <div class="sensei-response-area">
+        <div id="sensei-response" class="sensei-scroll">
+          <div class="sensei-placeholder">
+            <div class="sensei-placeholder__kanji">師</div>
+            <p>Select a card above to receive Sensei's guidance...</p>
+            <p class="jp">先生の教えを選んでください</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="chat-bar">
+        <input type="text" id="chat-input" class="ink-input" placeholder="Ask Sensei anything... 何でも聞いてください" />
+        <button class="btn-ink" onclick="chatWithSensei()">送る · Send</button>
+      </div>
+    </section>
+
+    <!-- POMODORO PANEL -->
+    <section id="panel-pomodoro" class="panel">
+      <div class="panel__header">
+        <div class="panel__header-left">
+          <h2 class="panel__title">集中 · Pomodoro</h2>
+          <p class="panel__subtitle">間 — mindful intervals of focused work</p>
+        </div>
+      </div>
+
+      <div class="pomodoro-wrap">
+
+        <!-- Timer display -->
+        <div class="pomo-clock">
+          <svg class="pomo-ring" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle class="pomo-ring__track" cx="100" cy="100" r="88" fill="none" stroke="#d9cdb8" stroke-width="8"/>
+            <circle class="pomo-ring__fill" id="pomo-ring-fill" cx="100" cy="100" r="88" fill="none" stroke="#c0392b" stroke-width="8" stroke-linecap="round" stroke-dasharray="553" stroke-dashoffset="0"/>
+          </svg>
+          <div class="pomo-clock__inner">
+            <div class="pomo-mode-label" id="pomo-mode-label">集中 · Focus</div>
+            <div class="pomo-time" id="pomo-time">25:00</div>
+            <div class="pomo-session" id="pomo-session">第 1 回 · Session 1</div>
+          </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="pomo-controls">
+          <button class="pomo-btn pomo-btn--main" id="pomo-start-btn" onclick="pomoToggle()">
+            <span id="pomo-start-label">始める · Start</span>
+          </button>
+          <button class="pomo-btn" onclick="pomoReset()">戻す · Reset</button>
+          <button class="pomo-btn" onclick="pomoSkip()">次へ · Skip</button>
+        </div>
+
+        <!-- Mode selector -->
+        <div class="pomo-modes">
+          <button class="pomo-mode-btn active" id="mode-btn-focus" onclick="pomoSetMode('focus', this)">
+            <span class="pomo-mode-btn__kanji">集</span>Focus
+            <small id="pomo-focus-mins">25 min</small>
+          </button>
+          <button class="pomo-mode-btn" id="mode-btn-short" onclick="pomoSetMode('short', this)">
+            <span class="pomo-mode-btn__kanji">息</span>Short Break
+            <small id="pomo-short-mins">5 min</small>
+          </button>
+          <button class="pomo-mode-btn" id="mode-btn-long" onclick="pomoSetMode('long', this)">
+            <span class="pomo-mode-btn__kanji">休</span>Long Break
+            <small id="pomo-long-mins">15 min</small>
+          </button>
+        </div>
+
+        <!-- Settings -->
+        <div class="pomo-settings">
+          <div class="pomo-settings__title">設定 · Settings</div>
+          <div class="pomo-settings__grid">
+            <div class="form-field">
+              <label class="form-label">集中 Focus (min)</label>
+              <input type="number" id="set-focus" class="ink-input ink-input--sm" value="25" min="1" max="90" onchange="pomoApplySettings()"/>
+            </div>
+            <div class="form-field">
+              <label class="form-label">短休憩 Short Break (min)</label>
+              <input type="number" id="set-short" class="ink-input ink-input--sm" value="5" min="1" max="30" onchange="pomoApplySettings()"/>
+            </div>
+            <div class="form-field">
+              <label class="form-label">長休憩 Long Break (min)</label>
+              <input type="number" id="set-long" class="ink-input ink-input--sm" value="15" min="1" max="60" onchange="pomoApplySettings()"/>
+            </div>
+            <div class="form-field">
+              <label class="form-label">長休憩まで Sessions until long break</label>
+              <input type="number" id="set-sessions" class="ink-input ink-input--sm" value="4" min="2" max="8" onchange="pomoApplySettings()"/>
+            </div>
+          </div>
+          <label class="pomo-toggle-row">
+            <input type="checkbox" id="set-sound" checked onchange="pomoApplySettings()"/>
+            <span>🔔 Sound notifications</span>
+          </label>
+          <label class="pomo-toggle-row">
+            <input type="checkbox" id="set-autostart" onchange="pomoApplySettings()"/>
+            <span>⏭ Auto-start next session</span>
+          </label>
+          <div class="pomo-sound-preview">
+            <div class="pomo-settings__title" style="margin-top:14px">音のプレビュー · Sound Preview</div>
+            <div class="pomo-preview-grid">
+              <button class="pomo-preview-btn" onclick="zenSound('kane')">🔔 Kane<small>Focus end</small></button>
+              <button class="pomo-preview-btn" onclick="zenSound('rin')">🎵 Rin<small>Short break</small></button>
+              <button class="pomo-preview-btn" onclick="zenSound('daisho')">🎐 Daishō<small>Long break</small></button>
+              <button class="pomo-preview-btn" onclick="zenSound('focus_start')">✨ Sanrenrin<small>Focus start</small></button>
+              <button class="pomo-preview-btn" onclick="zenSound('task_done')">✓ Kanryō<small>Task done</small></button>
+              <button class="pomo-preview-btn" onclick="zenSound('warning')">⚠ Keikoku<small>60s warning</small></button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Session log -->
+        <div class="pomo-log-wrap">
+          <div class="pomo-settings__title">記録 · Session Log</div>
+          <div id="pomo-log" class="pomo-log"></div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- STATS PANEL -->
+    <section id="panel-stats" class="panel">
+      <div class="panel__header">
+        <h2 class="panel__title">進歩 · Progress</h2>
+      </div>
+      <div id="stats-content" class="stats-grid">
+        <div class="loading-scroll">読み込み中...</div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>

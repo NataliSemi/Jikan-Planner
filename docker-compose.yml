@@ -1,0 +1,22 @@
+version: "3.9"
+
+services:
+  jikan-planner:
+    build: .
+    container_name: jikan-planner
+    ports:
+      - "8000:8000"
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    volumes:
+      # Persist your task data between container restarts
+      - jikan_data:/app/data
+      # Hot-reload: mount source for development
+      - ./app:/app/app
+      - ./static:/app/static
+      - ./templates:/app/templates
+    restart: unless-stopped
+
+volumes:
+  jikan_data:
+    driver: local
