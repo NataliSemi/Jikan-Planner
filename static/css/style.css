@@ -73,6 +73,13 @@ html, body {
       var(--wood-grain-light) 2px,
       var(--wood-grain-dark) 2px,
       var(--wood-grain-dark) 7px
+    linear-gradient(180deg, rgba(255, 235, 210, 0.06), rgba(0, 0, 0, 0.08)),
+    repeating-linear-gradient(
+      12deg,
+      var(--wood-grain-light) 0px,
+      var(--wood-grain-light) 2px,
+      var(--wood-grain-dark) 2px,
+      var(--wood-grain-dark) 6px
     ),
     var(--bg);
   color: var(--text);
@@ -113,6 +120,7 @@ html, body {
       rgba(0,0,0,0.16) 24px,
       rgba(0,0,0,0.16) 26px
     ),
+    linear-gradient(180deg, rgba(20, 12, 8, 0.05), rgba(255, 233, 206, 0.02)),
     var(--bg-raised);
   border-right: 1px solid var(--border);
   display: flex; flex-direction: column;
@@ -608,38 +616,38 @@ html, body {
   width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0;
   border: 1px solid rgba(255,255,255,0.15);
 }
-.theme-btn__swatch--light { background: radial-gradient(circle at 35% 35%, #d2c9a1, #6f7f58); }
+.theme-btn__swatch--light { background: radial-gradient(circle at 35% 35%, #e3b67f, #8f5b2f); }
 .theme-btn__swatch--dark  { background: radial-gradient(circle at 35% 35%, #2a2030, #0a0810); }
 .theme-btn__label { font-size: 10px; }
 
 /* ── LIGHT MODE ── */
 [data-theme="light"] {
-  --bg:           #c7b495;
-  --bg-raised:    #b6a27f;
-  --bg-float:     #a49373;
-  --border:       rgba(47,38,22,0.16);
-  --border-mid:   rgba(47,38,22,0.28);
-  --border-bright:rgba(47,38,22,0.4);
-  --text:         #22180e;
-  --text-mid:     #4b3e2a;
-  --text-dim:     #6f624a;
-  --text-faint:   #8a7d63;
-  --sakura:       #5f6f46;
-  --sakura-bright:#788c5d;
-  --sakura-dim:   #435132;
-  --sakura-glow:  rgba(95,111,70,0.14);
-  --sakura-subtle:rgba(95,111,70,0.12);
-  --indigo:       #3f5d76;
-  --indigo-lt:    #5c7b96;
-  --green:        #4f6e44;
+  --bg:           #cba06a;
+  --bg-raised:    #b98a56;
+  --bg-float:     #aa7b49;
+  --border:       rgba(56,32,12,0.16);
+  --border-mid:   rgba(56,32,12,0.28);
+  --border-bright:rgba(56,32,12,0.4);
+  --text:         #2a1608;
+  --text-mid:     #5b3a1e;
+  --text-dim:     #7b5532;
+  --text-faint:   #9c764f;
+  --sakura:       #8d4e2b;
+  --sakura-bright:#b56b3f;
+  --sakura-dim:   #6d3b1c;
+  --sakura-glow:  rgba(181,107,63,0.14);
+  --sakura-subtle:rgba(181,107,63,0.11);
+  --indigo:       #284868;
+  --indigo-lt:    #486888;
+  --green:        #285840;
   --cinnabar:     #802020;
-  --wood-grain-light: rgba(226, 223, 193, 0.2);
-  --wood-grain-dark:  rgba(95, 80, 55, 0.13);
-  --wood-plank-a:     #cab893;
-  --wood-plank-b:     #b8a882;
-  --wood-seam:        rgba(75, 63, 43, 0.42);
-  --wood-highlight:   rgba(228, 222, 196, 0.24);
-  --wood-shadow:      rgba(76, 66, 48, 0.16);
+  --wood-grain-light: rgba(255, 255, 255, 0.18);
+  --wood-grain-dark:  rgba(120, 86, 52, 0.08);
+  --wood-plank-a:     #d6b48a;
+  --wood-plank-b:     #caa274;
+  --wood-seam:        rgba(108, 74, 40, 0.36);
+  --wood-highlight:   rgba(255, 255, 255, 0.38);
+  --wood-shadow:      rgba(104, 78, 50, 0.10);
 }
 
 /* Smooth theme transition */
