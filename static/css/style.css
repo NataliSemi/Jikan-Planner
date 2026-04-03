@@ -614,50 +614,37 @@ html, body {
 
 /* ── LIGHT MODE ── */
 [data-theme="light"] {
-  --bg:           #adb08f;
-  --bg-raised:    #9da07f;
-  --bg-float:     #8f936f;
+  --bg:           #b5b499;
+  --bg-raised:    #c0c49e;
+  --bg-float:     #8c915c;
   --border:       rgba(47,38,22,0.16);
   --border-mid:   rgba(47,38,22,0.28);
   --border-bright:rgba(47,38,22,0.4);
   --text:         #202015;
-  --text-mid:     #414233;
-  --text-dim:     #606250;
-  --text-faint:   #7d806b;
-  --sakura:       #4a7033;
-  --sakura-bright:#689447;
+  --text-mid:     #0e0e0e;
+  --text-dim:     #233c25;
+  --text-faint:   #437027;
+  --sakura:       #4f6a3b;
+  --sakura-bright:#688a4d;
   --sakura-dim:   #3a4f2c;
   --sakura-glow:  rgba(79,106,59,0.14);
   --sakura-subtle:rgba(79,106,59,0.12);
   --indigo:       #3f5d76;
   --indigo-lt:    #5c7b96;
-  --green:        #5f8743;
+  --green:        #527343;
   --cinnabar:     #802020;
-  --wood-grain-light: rgba(195, 212, 165, 0.24);
-  --wood-grain-dark:  rgba(66, 79, 48, 0.15);
-  --wood-plank-a:     #adb48d;
-  --wood-plank-b:     #a0a97f;
-  --wood-seam:        rgba(55, 70, 40, 0.42);
-  --wood-highlight:   rgba(206, 221, 174, 0.24);
-  --wood-shadow:      rgba(55, 70, 40, 0.18);
+  --wood-grain-light: rgba(194, 206, 174, 0.2);
+  --wood-grain-dark:  rgba(72, 78, 56, 0.13);
+  --wood-plank-a:     #b4b69c;
+  --wood-plank-b:     #a5a789;
+  --wood-seam:        rgba(58, 65, 44, 0.38);
+  --wood-highlight:   rgba(205, 214, 185, 0.22);
+  --wood-shadow:      rgba(58, 65, 44, 0.17);
 }
 
 /* Light-mode bamboo accent visibility */
-html[data-theme="light"],
-html[data-theme="light"] body {
-  background:
-    linear-gradient(180deg, rgba(196, 214, 156, 0.22), rgba(43, 58, 26, 0.18)),
-    repeating-linear-gradient(
-      90deg,
-      rgba(198, 213, 163, 0.18) 0px,
-      rgba(198, 213, 163, 0.18) 28px,
-      rgba(59, 74, 43, 0.18) 28px,
-      rgba(59, 74, 43, 0.18) 31px
-    ),
-    var(--bg);
-}
 [data-theme="light"] .nav-btn.active {
-  background: rgba(95,135,67,0.44);
+  background: rgba(82,115,67,0.34);
   color: #f2f7e8;
 }
 [data-theme="light"] .nav-btn.active .nav-btn__kanji,
@@ -668,12 +655,12 @@ html[data-theme="light"] body {
   background: var(--green);
 }
 [data-theme="light"] .btn-ink {
-  background: rgba(95,135,67,0.28);
-  border-color: rgba(58,79,44,0.78);
+  background: rgba(82,115,67,0.22);
+  border-color: rgba(58,79,44,0.72);
   color: #e6f2d7;
 }
 [data-theme="light"] .btn-ink:hover {
-  background: rgba(95,135,67,0.44);
+  background: rgba(82,115,67,0.36);
 }
 [data-theme="light"] .theme-switcher {
   background: rgba(82,115,67,0.22);
@@ -681,21 +668,14 @@ html[data-theme="light"] body {
 }
 [data-theme="light"] .sensei-card:nth-child(1):hover {
   border-color: var(--green);
-  background: rgba(95,135,67,0.34);
+  background: rgba(82,115,67,0.26);
 }
 [data-theme="light"] .tl-btn--done {
-  border-color: rgba(95,135,67,0.72);
+  border-color: rgba(82,115,67,0.62);
   color: var(--green);
 }
 [data-theme="light"] .tl-btn--done:hover {
-  background: rgba(95,135,67,0.32);
-}
-[data-theme="light"] .timeline-item,
-[data-theme="light"] .task-row,
-[data-theme="light"] .form-card,
-[data-theme="light"] .sensei-card,
-[data-theme="light"] .stat-card {
-  background: rgba(170, 180, 137, 0.42);
+  background: rgba(82,115,67,0.24);
 }
 
 /* Smooth theme transition */
