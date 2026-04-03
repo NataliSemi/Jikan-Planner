@@ -2,17 +2,28 @@ from fastapi import APIRouter, HTTPException
 import httpx
 import os
 import json
+import asyncio
+import logging
 from datetime import date
 from app import store
 from app.models import MoodCheckIn
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_URL = (
-    "https://generativelanguage.googleapis.com/v1beta/models/"
-    "gemini-2.0-flash:generateContent"
-)
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+MAX_OUTPUT_TOKENS = int(os.getenv("GEMINI_MAX_OUTPUT_TOKENS", "1024"))
+TEMPERATURE = float(os.getenv("GEMINI_TEMPERATURE", "0.7"))
+
+
+def _extract_gemini_error(resp: httpx.Response) -> str:
+    try:
+        data = resp.json()
+        return data.get("error", {}).get("message", "")
+    except (ValueError, AttributeError):
+        return ""
 
 
 async def call_gemini(system_prompt: str, user_message: str) -> str:
@@ -27,32 +38,32 @@ async def call_gemini(system_prompt: str, user_message: str) -> str:
         "system_instruction": {"parts": [{"text": system_prompt}]},
         "contents": [{"parts": [{"text": user_message}]}],
         "generationConfig": {
-            "maxOutputTokens": 1024,
-            "temperature": 0.7,
+            "maxOutputTokens": MAX_OUTPUT_TOKENS,
+            "temperature": TEMPERATURE,
         },
     }
-
-    import asyncio
 
     max_retries = 3
     for attempt in range(max_retries):
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 resp = await client.post(
-                    f"{GEMINI_URL}?key={GEMINI_API_KEY}",
+                    f"{GEMINI_URL.format(model=GEMINI_MODEL)}?key={GEMINI_API_KEY}",
                     json=payload,
                 )
 
                 # Handle rate limit with retry
                 if resp.status_code == 429:
-                    wait = 2 ** attempt  # 1s, 2s, 4s
+                    wait = int(resp.headers.get("Retry-After", 2 ** attempt))
                     if attempt < max_retries - 1:
                         await asyncio.sleep(wait)
                         continue
+                    error_msg = _extract_gemini_error(resp)
+                    logger.warning("Gemini 429 rate-limited: %s", error_msg or "no details")
                     return (
                         "先生は少々お待ちください... Sensei is briefly unavailable.\n\n"
                         "Gemini API rate limit reached (too many requests). "
-                        "The free tier allows ~15 requests per minute. "
+                        f"Current model: {GEMINI_MODEL}.\n"
                         "Please wait a moment and try again.\n\n"
                         "一息ついて、また話しかけてください。"
                     )
@@ -64,6 +75,11 @@ async def call_gemini(system_prompt: str, user_message: str) -> str:
                     return (
                         "APIキーが無効です · Invalid API key.\n"
                         "Check your GEMINI_API_KEY in the .env file."
+                    )
+                if resp.status_code == 404:
+                    return (
+                        "モデルが見つかりません · Model not found.\n"
+                        f"Check GEMINI_MODEL (current: {GEMINI_MODEL})."
                     )
                 if resp.status_code >= 500:
                     if attempt < max_retries - 1:
@@ -78,6 +94,7 @@ async def call_gemini(system_prompt: str, user_message: str) -> str:
                 try:
                     return data["candidates"][0]["content"]["parts"][0]["text"]
                 except (KeyError, IndexError):
+                    logger.warning("Gemini response missing text payload: %s", data)
                     return "先生の言葉が届きませんでした · No response received. Please try again."
 
         except httpx.TimeoutException:
@@ -86,6 +103,7 @@ async def call_gemini(system_prompt: str, user_message: str) -> str:
                 continue
             return "タイムアウト · Request timed out. Gemini took too long to respond. Please try again."
         except httpx.RequestError as e:
+            logger.exception("Gemini network request failed")
             return f"ネットワークエラー · Network error: {str(e)}"
 
     return "エラー · Something went wrong. Please try again."
