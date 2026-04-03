@@ -39,11 +39,6 @@
   --col-social:   #408060;
   --wood-grain-light: rgba(255, 228, 196, 0.035);
   --wood-grain-dark:  rgba(72, 45, 25, 0.065);
-  --wood-plank-a:     #5a3e28;
-  --wood-plank-b:     #4f351f;
-  --wood-seam:        rgba(18, 10, 6, 0.55);
-  --wood-highlight:   rgba(255, 235, 210, 0.08);
-  --wood-shadow:      rgba(0, 0, 0, 0.24);
 
   --radius:    6px;
   --radius-lg: 10px;
@@ -57,22 +52,6 @@
 html, body {
   height: 100%; overflow: hidden;
   background:
-    linear-gradient(180deg, var(--wood-highlight), var(--wood-shadow)),
-    repeating-linear-gradient(
-      90deg,
-      var(--wood-plank-a) 0px,
-      var(--wood-plank-a) 30px,
-      var(--wood-seam) 30px,
-      var(--wood-seam) 32px,
-      var(--wood-plank-b) 32px,
-      var(--wood-plank-b) 64px
-    ),
-    repeating-linear-gradient(
-      0deg,
-      var(--wood-grain-light) 0px,
-      var(--wood-grain-light) 2px,
-      var(--wood-grain-dark) 2px,
-      var(--wood-grain-dark) 7px
     linear-gradient(180deg, rgba(255, 235, 210, 0.06), rgba(0, 0, 0, 0.08)),
     repeating-linear-gradient(
       12deg,
@@ -112,14 +91,6 @@ html, body {
 .sidebar {
   width: 220px; flex-shrink: 0;
   background:
-    linear-gradient(180deg, rgba(20, 12, 8, 0.20), rgba(255, 233, 206, 0.06)),
-    repeating-linear-gradient(
-      90deg,
-      rgba(255,255,255,0.015) 0px,
-      rgba(255,255,255,0.015) 24px,
-      rgba(0,0,0,0.16) 24px,
-      rgba(0,0,0,0.16) 26px
-    ),
     linear-gradient(180deg, rgba(20, 12, 8, 0.05), rgba(255, 233, 206, 0.02)),
     var(--bg-raised);
   border-right: 1px solid var(--border);
