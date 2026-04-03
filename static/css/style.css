@@ -39,11 +39,6 @@
   --col-social:   #408060;
   --wood-grain-light: rgba(255, 228, 196, 0.035);
   --wood-grain-dark:  rgba(72, 45, 25, 0.065);
-  --wood-plank-a:     #5a3e28;
-  --wood-plank-b:     #4f351f;
-  --wood-seam:        rgba(18, 10, 6, 0.55);
-  --wood-highlight:   rgba(255, 235, 210, 0.08);
-  --wood-shadow:      rgba(0, 0, 0, 0.24);
 
   --radius:    6px;
   --radius-lg: 10px;
@@ -57,22 +52,13 @@
 html, body {
   height: 100%; overflow: hidden;
   background:
-    linear-gradient(180deg, var(--wood-highlight), var(--wood-shadow)),
+    linear-gradient(180deg, rgba(255, 235, 210, 0.06), rgba(0, 0, 0, 0.08)),
     repeating-linear-gradient(
-      90deg,
-      var(--wood-plank-a) 0px,
-      var(--wood-plank-a) 30px,
-      var(--wood-seam) 30px,
-      var(--wood-seam) 32px,
-      var(--wood-plank-b) 32px,
-      var(--wood-plank-b) 64px
-    ),
-    repeating-linear-gradient(
-      0deg,
+      12deg,
       var(--wood-grain-light) 0px,
       var(--wood-grain-light) 2px,
       var(--wood-grain-dark) 2px,
-      var(--wood-grain-dark) 7px
+      var(--wood-grain-dark) 6px
     ),
     var(--bg);
   color: var(--text);
@@ -105,14 +91,7 @@ html, body {
 .sidebar {
   width: 220px; flex-shrink: 0;
   background:
-    linear-gradient(180deg, rgba(20, 12, 8, 0.20), rgba(255, 233, 206, 0.06)),
-    repeating-linear-gradient(
-      90deg,
-      rgba(255,255,255,0.015) 0px,
-      rgba(255,255,255,0.015) 24px,
-      rgba(0,0,0,0.16) 24px,
-      rgba(0,0,0,0.16) 26px
-    ),
+    linear-gradient(180deg, rgba(20, 12, 8, 0.05), rgba(255, 233, 206, 0.02)),
     var(--bg-raised);
   border-right: 1px solid var(--border);
   display: flex; flex-direction: column;
@@ -633,13 +612,13 @@ html, body {
   --indigo-lt:    #486888;
   --green:        #285840;
   --cinnabar:     #802020;
-  --wood-grain-light: rgba(250, 210, 150, 0.22);
-  --wood-grain-dark:  rgba(115, 70, 32, 0.13);
-  --wood-plank-a:     #d4a067;
-  --wood-plank-b:     #c38a4e;
-  --wood-seam:        rgba(95, 55, 24, 0.44);
-  --wood-highlight:   rgba(246, 210, 156, 0.24);
-  --wood-shadow:      rgba(90, 53, 22, 0.16);
+  --wood-grain-light: rgba(255, 255, 255, 0.18);
+  --wood-grain-dark:  rgba(120, 86, 52, 0.08);
+  --wood-plank-a:     #d6b48a;
+  --wood-plank-b:     #caa274;
+  --wood-seam:        rgba(108, 74, 40, 0.36);
+  --wood-highlight:   rgba(255, 255, 255, 0.38);
+  --wood-shadow:      rgba(104, 78, 50, 0.10);
 }
 
 /* Smooth theme transition */
