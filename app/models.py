@@ -1,6 +1,5 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
-from datetime import datetime
 from enum import Enum
 
 
@@ -20,6 +19,16 @@ class MoodLevel(str, Enum):
     high = "high"
 
 
+class ChecklistItem(BaseModel):
+    text: str
+    completed: bool = False
+
+
+class RecurrenceRule(BaseModel):
+    frequency: str = "weekly"
+    weekdays: List[str] = Field(default_factory=list)
+
+
 class Task(BaseModel):
     id: Optional[str] = None
     title: str
@@ -29,6 +38,9 @@ class Task(BaseModel):
     scheduled_date: Optional[str] = None  # YYYY-MM-DD
     completed: bool = False
     notes: Optional[str] = None
+    checklist: List[ChecklistItem] = Field(default_factory=list)
+    recurrence: Optional[RecurrenceRule] = None
+    completion_log: List[str] = Field(default_factory=list)
     created_at: Optional[str] = None
 
 
@@ -40,6 +52,9 @@ class TaskUpdate(BaseModel):
     scheduled_date: Optional[str] = None
     completed: Optional[bool] = None
     notes: Optional[str] = None
+    checklist: Optional[List[ChecklistItem]] = None
+    completion_log: Optional[List[str]] = None
+    instance_date: Optional[str] = None
 
 
 class MoodCheckIn(BaseModel):
