@@ -198,6 +198,22 @@
             <label class="form-label">備考 · Notes</label>
             <textarea id="task-notes" class="ink-textarea" rows="3" placeholder="Any thoughts..."></textarea>
           </div>
+          <div class="form-field">
+            <label class="form-label">チェックリスト · Checklist (one per line)</label>
+            <textarea id="task-checklist" class="ink-textarea" rows="3" placeholder="Outline\nPractice questions\nReview mistakes"></textarea>
+          </div>
+          <div class="form-field">
+            <label class="form-label">繰り返し · Weekly recurrence</label>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+              <label><input type="checkbox" class="recurring-day" value="monday"> Mon</label>
+              <label><input type="checkbox" class="recurring-day" value="tuesday"> Tue</label>
+              <label><input type="checkbox" class="recurring-day" value="wednesday"> Wed</label>
+              <label><input type="checkbox" class="recurring-day" value="thursday"> Thu</label>
+              <label><input type="checkbox" class="recurring-day" value="friday"> Fri</label>
+              <label><input type="checkbox" class="recurring-day" value="saturday"> Sat</label>
+              <label><input type="checkbox" class="recurring-day" value="sunday"> Sun</label>
+            </div>
+          </div>
           <button class="btn-ink btn-ink--full" onclick="createTask()">
             <span class="btn-kanji">記</span> Register Task
           </button>
@@ -244,6 +260,7 @@
       <div class="chat-bar">
         <input type="text" id="chat-input" class="ink-input" placeholder="Ask Sensei anything... 何でも聞いてください" />
         <button class="btn-ink" onclick="chatWithSensei()">送る · Send</button>
+        <button class="btn-ink" id="sensei-create-btn">作成 · Create Tasks</button>
       </div>
     </section>
 
