@@ -332,7 +332,6 @@ async function createTasksWithSensei() {
     responseEl.innerHTML = `<div class="sensei-message" style="color:var(--cinnabar)">作成失敗 · ${escHtml(String(e.message || e))}</div>`;
   }
 }
-window.createTasksWithSensei = createTasksWithSensei;
 
 function renderChecklist(task) {
   if (!task.checklist || !task.checklist.length) return '';
@@ -346,6 +345,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const chatInput = document.getElementById('chat-input');
   if (chatInput) {
     chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') chatWithSensei(); });
+  }
+  const createBtn = document.getElementById('sensei-create-btn');
+  if (createBtn) {
+    createBtn.addEventListener('click', createTasksWithSensei);
   }
 });
 
