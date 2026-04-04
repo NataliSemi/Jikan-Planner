@@ -84,11 +84,13 @@ function renderTimeline(tasks, container) {
         <div class="tl-meta">
           <span class="tl-badge badge-${t.activity_type}">${typeLabel(t.activity_type)}</span>
           <span>${t.duration_minutes} min</span>
+          ${t.recurrence?.weekdays?.length ? `<span>· ↻ ${t.recurrence.weekdays.join(', ')}</span>` : ''}
           ${t.notes ? `<span>· ${escHtml(t.notes)}</span>` : ''}
         </div>
+        ${renderChecklist(t)}
       </div>
       <div class="tl-actions">
-        ${!t.completed ? `<button class="tl-btn tl-btn--done" onclick="markDone('${t.id}')">完了</button>` : '<span style="font-size:11px;color:var(--col-reading)">✓ Done</span>'}
+        ${!t.completed ? `<button class="tl-btn tl-btn--done" onclick="markDone('${t.id}', '${t.instance_date || ''}')">完了</button>` : '<span style="font-size:11px;color:var(--col-reading)">✓ Done</span>'}
         <button class="tl-btn tl-btn--del" onclick="deleteTask('${t.id}', true)">削除</button>
       </div>
     </div>
@@ -131,10 +133,12 @@ function renderAllTasks(tasks, container) {
         <div style="display:flex;gap:10px;margin-top:4px;">
           <span class="tl-badge badge-${t.activity_type}">${typeLabel(t.activity_type)}</span>
           <span class="task-row__date">${t.scheduled_date || ''} ${t.scheduled_time || ''} · ${t.duration_minutes}min</span>
+          ${t.recurrence?.weekdays?.length ? `<span class="task-row__date">↻ ${t.recurrence.weekdays.join(', ')}</span>` : ''}
         </div>
+        ${renderChecklist(t)}
       </div>
       <span style="font-size:12px;color:var(--ink-faint);font-family:'Noto Sans JP'">${t.completed ? '✓ 完了' : '未完'}</span>
-      ${!t.completed ? `<button class="tl-btn tl-btn--done" onclick="markDone('${t.id}')">完了</button>` : '<span></span>'}
+      ${!t.completed ? `<button class="tl-btn tl-btn--done" onclick="markDone('${t.id}', '${t.instance_date || ''}')">完了</button>` : '<span></span>'}
       <button class="tl-btn tl-btn--del" onclick="deleteTask('${t.id}', false)">削除</button>
     </div>
   `).join('')}</div>`;
@@ -148,6 +152,8 @@ async function createTask() {
   const date     = document.getElementById('task-date').value;
   const time     = document.getElementById('task-time').value;
   const notes    = document.getElementById('task-notes').value.trim();
+  const checklistRaw = document.getElementById('task-checklist').value.trim();
+  const recurrenceDays = [...document.querySelectorAll('.recurring-day:checked')].map(el => el.value);
   const fb       = document.getElementById('add-feedback');
 
   if (!title) { setFeedback(fb, 'タイトルを入力してください', 'err'); return; }
@@ -156,6 +162,12 @@ async function createTask() {
   if (date) payload.scheduled_date = date;
   if (time) payload.scheduled_time = time;
   if (notes) payload.notes = notes;
+  if (checklistRaw) {
+    payload.checklist = checklistRaw.split('\n').map(i => i.trim()).filter(Boolean).map(text => ({ text, completed: false }));
+  }
+  if (recurrenceDays.length) {
+    payload.recurrence = { frequency: 'weekly', weekdays: recurrenceDays };
+  }
 
   try {
     const res = await fetch(`${API}/api/tasks/`, {
@@ -167,7 +179,9 @@ async function createTask() {
       setFeedback(fb, '✓ 登録しました · Task added', 'ok');
       document.getElementById('task-title').value = '';
       document.getElementById('task-notes').value = '';
+      document.getElementById('task-checklist').value = '';
       document.getElementById('task-time').value = '';
+      document.querySelectorAll('.recurring-day').forEach(el => { el.checked = false; });
     } else {
       setFeedback(fb, 'エラーが発生しました', 'err');
     }
@@ -177,11 +191,13 @@ async function createTask() {
 }
 
 // ── MARK DONE / DELETE ──────────────────────────────────────────
-async function markDone(id) {
+async function markDone(id, instanceDate = '') {
+  const payload = { completed: true };
+  if (instanceDate) payload.instance_date = instanceDate;
   await fetch(`${API}/api/tasks/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ completed: true })
+    body: JSON.stringify(payload)
   });
   zenSound('task_done'); // 完了の鈴 — soft descending chime
   loadTodayTasks();
@@ -288,6 +304,41 @@ async function chatWithSensei() {
   } catch (e) {
     responseEl.innerHTML = `<div class="sensei-message" style="color:var(--cinnabar)">エラーが発生しました</div>`;
   }
+}
+
+async function createTasksWithSensei() {
+  const input = document.getElementById('chat-input');
+  const msg = input.value.trim();
+  if (!msg) return;
+  const responseEl = document.getElementById('sensei-response');
+  responseEl.innerHTML = `<div class="sensei-loading"><div class="sensei-loading__brush">筆</div><p>先生が計画を作成中 · Sensei is creating tasks...</p></div>`;
+  try {
+    const res = await fetch(`${API}/api/ai/create-task`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: msg })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Could not create tasks');
+    responseEl.innerHTML = `
+      <div class="sensei-message">
+        <div class="sensei-message__header">◆ 自動作成 · AI Task Creation</div>
+        Created ${data.count} task(s).<br>
+        ${data.created.map(t => `・${escHtml(t.title)}`).join('<br>') || 'No valid tasks were generated.'}
+      </div>`;
+    input.value = '';
+    loadTodayTasks();
+  } catch (e) {
+    responseEl.innerHTML = `<div class="sensei-message" style="color:var(--cinnabar)">作成失敗 · ${escHtml(String(e.message || e))}</div>`;
+  }
+}
+window.createTasksWithSensei = createTasksWithSensei;
+
+function renderChecklist(task) {
+  if (!task.checklist || !task.checklist.length) return '';
+  return `<ul style="margin:6px 0 0 16px;padding:0;font-size:12px;color:var(--ink-light);">
+    ${task.checklist.map(item => `<li>${item.completed ? '☑' : '☐'} ${escHtml(item.text || '')}</li>`).join('')}
+  </ul>`;
 }
 
 // Enter key for chat
