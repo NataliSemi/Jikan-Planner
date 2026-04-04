@@ -332,6 +332,7 @@ async function createTasksWithSensei() {
     responseEl.innerHTML = `<div class="sensei-message" style="color:var(--cinnabar)">作成失敗 · ${escHtml(String(e.message || e))}</div>`;
   }
 }
+window.createTasksWithSensei = createTasksWithSensei;
 
 function renderChecklist(task) {
   if (!task.checklist || !task.checklist.length) return '';
