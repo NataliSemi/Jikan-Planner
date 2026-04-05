@@ -6,6 +6,7 @@ const API = '';  // same-origin
 
 // ── State ──────────────────────────────────────────────────────
 const mood = { energy: null, focus: null, mood: null };
+let pendingTaskProposal = null;
 
 // ── Init ────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -316,20 +317,55 @@ async function createTasksWithSensei() {
     const res = await fetch(`${API}/api/ai/create-task`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: msg })
+      body: JSON.stringify({ message: msg, dry_run: true })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Could not generate plan');
+    pendingTaskProposal = data.proposal || [];
+    responseEl.innerHTML = `
+      <div class="sensei-message">
+        <div class="sensei-message__header">◆ 提案プラン · Proposed Plan</div>
+        ${pendingTaskProposal.length ? pendingTaskProposal.map(t => `・${escHtml(t.title)} (${escHtml(String(t.duration_minutes))} min)`).join('<br>') : 'No valid tasks were generated.'}
+        <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn-ink btn-ink--sm" id="confirm-task-plan-btn">同意して作成 · Agree & Create</button>
+          <button class="btn-ink btn-ink--sm" id="revise-task-plan-btn">変更したい · Make Changes</button>
+        </div>
+      </div>`;
+    const confirmBtn = document.getElementById('confirm-task-plan-btn');
+    const reviseBtn = document.getElementById('revise-task-plan-btn');
+    if (confirmBtn) confirmBtn.addEventListener('click', confirmTaskProposal);
+    if (reviseBtn) reviseBtn.addEventListener('click', () => {
+      pendingTaskProposal = null;
+      responseEl.innerHTML = `<div class="sensei-message">了解です。変更したい点をチャットで教えてください · Got it—tell me what to change, and I’ll propose a new plan.</div>`;
+    });
+  } catch (e) {
+    responseEl.innerHTML = `<div class="sensei-message" style="color:var(--cinnabar)">作成失敗 · ${escHtml(String(e.message || e))}</div>`;
+  }
+}
+
+async function confirmTaskProposal() {
+  if (!pendingTaskProposal || !pendingTaskProposal.length) return;
+  const responseEl = document.getElementById('sensei-response');
+  responseEl.innerHTML = `<div class="sensei-loading"><div class="sensei-loading__brush">筆</div><p>提案を保存しています · Saving approved plan...</p></div>`;
+  try {
+    const res = await fetch(`${API}/api/ai/create-task`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ proposed_tasks: pendingTaskProposal })
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'Could not create tasks');
     responseEl.innerHTML = `
       <div class="sensei-message">
-        <div class="sensei-message__header">◆ 自動作成 · AI Task Creation</div>
+        <div class="sensei-message__header">◆ 作成完了 · Tasks Created</div>
         Created ${data.count} task(s).<br>
-        ${data.created.map(t => `・${escHtml(t.title)}`).join('<br>') || 'No valid tasks were generated.'}
+        ${data.created.map(t => `・${escHtml(t.title)}`).join('<br>')}
       </div>`;
-    input.value = '';
+    pendingTaskProposal = null;
+    document.getElementById('chat-input').value = '';
     loadTodayTasks();
   } catch (e) {
-    responseEl.innerHTML = `<div class="sensei-message" style="color:var(--cinnabar)">作成失敗 · ${escHtml(String(e.message || e))}</div>`;
+    responseEl.innerHTML = `<div class="sensei-message" style="color:var(--cinnabar)">保存失敗 · ${escHtml(String(e.message || e))}</div>`;
   }
 }
 

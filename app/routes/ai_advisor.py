@@ -215,18 +215,23 @@ async def chat_with_sensei(body: dict):
 
 @router.post("/create-task")
 async def create_task_from_ai(body: dict):
-    message = body.get("message", "").strip()
-    if not message:
-        raise HTTPException(status_code=400, detail="Message is required")
+    dry_run = bool(body.get("dry_run", False))
+    proposed_tasks = body.get("proposed_tasks")
+    if proposed_tasks is None:
+        message = body.get("message", "").strip()
+        if not message:
+            raise HTTPException(status_code=400, detail="Message is required")
+        ai_response = await call_gemini(TASK_CREATOR_SYSTEM, message)
+        try:
+            parsed = _extract_json_block(ai_response)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=422, detail="Could not parse AI task response")
+        source_tasks = parsed.get("tasks", [])
+    else:
+        source_tasks = proposed_tasks
 
-    ai_response = await call_gemini(TASK_CREATOR_SYSTEM, message)
-    try:
-        parsed = _extract_json_block(ai_response)
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=422, detail="Could not parse AI task response")
-
-    created = []
-    for item in parsed.get("tasks", []):
+    normalized_tasks = []
+    for item in source_tasks:
         title = (item.get("title") or "").strip()
         activity_type = item.get("activity_type")
         duration = item.get("duration_minutes")
@@ -241,7 +246,7 @@ async def create_task_from_ai(body: dict):
         weekdays = [str(day).lower() for day in item.get("recurrence_weekdays", []) if str(day).strip()]
         recurrence = {"frequency": "weekly", "weekdays": weekdays} if weekdays else None
 
-        created_task = store.create_task({
+        normalized_tasks.append({
             "title": title,
             "activity_type": activity_type,
             "duration_minutes": duration,
@@ -252,6 +257,9 @@ async def create_task_from_ai(body: dict):
             "recurrence": recurrence,
             "completion_log": [],
         })
-        created.append(created_task)
 
+    if dry_run:
+        return {"proposal": normalized_tasks, "count": len(normalized_tasks), "type": "task-proposal"}
+
+    created = [store.create_task(task) for task in normalized_tasks]
     return {"created": created, "count": len(created), "type": "create-task"}
