@@ -6,6 +6,9 @@ const API = '';  // same-origin
 
 // ── State ──────────────────────────────────────────────────────
 const mood = { energy: null, focus: null, mood: null };
+let pendingTaskProposal = null;
+const taskCache = new Map();
+let activeEditTaskId = null;
 
 // ── Init ────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -75,6 +78,7 @@ function renderTimeline(tasks, container) {
 
   // Sort by scheduled time
   tasks.sort((a, b) => (a.scheduled_time || '99:99').localeCompare(b.scheduled_time || '99:99'));
+  tasks.forEach(t => taskCache.set(t.id, t));
 
   container.innerHTML = tasks.map(t => `
     <div class="timeline-item ${t.completed ? 'completed' : ''}" data-type="${t.activity_type}">
@@ -84,11 +88,14 @@ function renderTimeline(tasks, container) {
         <div class="tl-meta">
           <span class="tl-badge badge-${t.activity_type}">${typeLabel(t.activity_type)}</span>
           <span>${t.duration_minutes} min</span>
+          ${t.recurrence?.weekdays?.length ? `<span>· ↻ ${t.recurrence.weekdays.join(', ')}</span>` : ''}
           ${t.notes ? `<span>· ${escHtml(t.notes)}</span>` : ''}
         </div>
+        ${renderChecklist(t)}
       </div>
       <div class="tl-actions">
-        ${!t.completed ? `<button class="tl-btn tl-btn--done" onclick="markDone('${t.id}')">完了</button>` : '<span style="font-size:11px;color:var(--col-reading)">✓ Done</span>'}
+        ${!t.completed ? `<button class="tl-btn tl-btn--done" onclick="markDone('${t.id}', '${t.instance_date || ''}')">完了</button>` : '<span style="font-size:11px;color:var(--col-reading)">✓ Done</span>'}
+        <button class="tl-btn" onclick="openEditTask('${t.id}')">編集</button>
         <button class="tl-btn tl-btn--del" onclick="deleteTask('${t.id}', true)">削除</button>
       </div>
     </div>
@@ -123,6 +130,7 @@ function renderAllTasks(tasks, container) {
   }
 
   tasks.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+  tasks.forEach(t => taskCache.set(t.id, t));
 
   container.innerHTML = `<div class="task-list">${tasks.map(t => `
     <div class="task-row ${t.completed ? 'completed' : ''}" data-type="${t.activity_type}">
@@ -131,10 +139,13 @@ function renderAllTasks(tasks, container) {
         <div style="display:flex;gap:10px;margin-top:4px;">
           <span class="tl-badge badge-${t.activity_type}">${typeLabel(t.activity_type)}</span>
           <span class="task-row__date">${t.scheduled_date || ''} ${t.scheduled_time || ''} · ${t.duration_minutes}min</span>
+          ${t.recurrence?.weekdays?.length ? `<span class="task-row__date">↻ ${t.recurrence.weekdays.join(', ')}</span>` : ''}
         </div>
+        ${renderChecklist(t)}
       </div>
       <span style="font-size:12px;color:var(--ink-faint);font-family:'Noto Sans JP'">${t.completed ? '✓ 完了' : '未完'}</span>
-      ${!t.completed ? `<button class="tl-btn tl-btn--done" onclick="markDone('${t.id}')">完了</button>` : '<span></span>'}
+      ${!t.completed ? `<button class="tl-btn tl-btn--done" onclick="markDone('${t.id}', '${t.instance_date || ''}')">完了</button>` : '<span></span>'}
+      <button class="tl-btn" onclick="openEditTask('${t.id}')">編集</button>
       <button class="tl-btn tl-btn--del" onclick="deleteTask('${t.id}', false)">削除</button>
     </div>
   `).join('')}</div>`;
@@ -148,6 +159,8 @@ async function createTask() {
   const date     = document.getElementById('task-date').value;
   const time     = document.getElementById('task-time').value;
   const notes    = document.getElementById('task-notes').value.trim();
+  const checklistRaw = document.getElementById('task-checklist').value.trim();
+  const recurrenceDays = [...document.querySelectorAll('.recurring-day:checked')].map(el => el.value);
   const fb       = document.getElementById('add-feedback');
 
   if (!title) { setFeedback(fb, 'タイトルを入力してください', 'err'); return; }
@@ -156,6 +169,12 @@ async function createTask() {
   if (date) payload.scheduled_date = date;
   if (time) payload.scheduled_time = time;
   if (notes) payload.notes = notes;
+  if (checklistRaw) {
+    payload.checklist = checklistRaw.split('\n').map(i => i.trim()).filter(Boolean).map(text => ({ text, completed: false }));
+  }
+  if (recurrenceDays.length) {
+    payload.recurrence = { frequency: 'weekly', weekdays: recurrenceDays };
+  }
 
   try {
     const res = await fetch(`${API}/api/tasks/`, {
@@ -167,7 +186,9 @@ async function createTask() {
       setFeedback(fb, '✓ 登録しました · Task added', 'ok');
       document.getElementById('task-title').value = '';
       document.getElementById('task-notes').value = '';
+      document.getElementById('task-checklist').value = '';
       document.getElementById('task-time').value = '';
+      document.querySelectorAll('.recurring-day').forEach(el => { el.checked = false; });
     } else {
       setFeedback(fb, 'エラーが発生しました', 'err');
     }
@@ -177,11 +198,13 @@ async function createTask() {
 }
 
 // ── MARK DONE / DELETE ──────────────────────────────────────────
-async function markDone(id) {
+async function markDone(id, instanceDate = '') {
+  const payload = { completed: true };
+  if (instanceDate) payload.instance_date = instanceDate;
   await fetch(`${API}/api/tasks/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ completed: true })
+    body: JSON.stringify(payload)
   });
   zenSound('task_done'); // 完了の鈴 — soft descending chime
   loadTodayTasks();
@@ -192,6 +215,70 @@ async function deleteTask(id, isToday) {
   await fetch(`${API}/api/tasks/${id}`, { method: 'DELETE' });
   if (isToday) loadTodayTasks(); else loadAllTasks();
 }
+
+function openEditTask(id) {
+  const task = taskCache.get(id);
+  if (!task) return alert('Task details not loaded yet. Please refresh and try again.');
+  activeEditTaskId = id;
+  const modal = document.getElementById('edit-task-modal');
+  if (!modal) return;
+
+  document.getElementById('edit-task-title').value = task.title || '';
+  document.getElementById('edit-task-type').value = task.activity_type || 'learning';
+  document.getElementById('edit-task-duration').value = task.duration_minutes || 30;
+  document.getElementById('edit-task-date').value = task.scheduled_date || '';
+  document.getElementById('edit-task-time').value = task.scheduled_time || '';
+  document.getElementById('edit-task-notes').value = task.notes || '';
+  document.getElementById('edit-task-checklist').value = checklistToLines(task.checklist || []);
+  document.querySelectorAll('.edit-recurring-day').forEach(el => { el.checked = false; });
+  const days = task.recurrence?.weekdays || [];
+  days.forEach(day => {
+    const checkbox = document.querySelector(`.edit-recurring-day[value="${day}"]`);
+    if (checkbox) checkbox.checked = true;
+  });
+  modal.style.display = 'flex';
+}
+window.openEditTask = openEditTask;
+
+async function submitEditTask() {
+  if (!activeEditTaskId) return;
+  const task = taskCache.get(activeEditTaskId) || {};
+  const title = document.getElementById('edit-task-title').value.trim();
+  if (!title) return alert('Title is required');
+  const duration = parseInt(document.getElementById('edit-task-duration').value, 10);
+  if (!Number.isFinite(duration) || duration <= 0) return alert('Duration must be a positive number');
+
+  const recurrenceDays = [...document.querySelectorAll('.edit-recurring-day:checked')].map(el => el.value);
+  const payload = {
+    title,
+    activity_type: document.getElementById('edit-task-type').value,
+    duration_minutes: duration,
+    scheduled_date: document.getElementById('edit-task-date').value || null,
+    scheduled_time: document.getElementById('edit-task-time').value || null,
+    notes: document.getElementById('edit-task-notes').value.trim() || null,
+    checklist: linesToChecklist(document.getElementById('edit-task-checklist').value),
+    recurrence: recurrenceDays.length ? { frequency: 'weekly', weekdays: recurrenceDays } : null,
+  };
+
+  if (task.instance_date) payload.instance_date = task.instance_date;
+
+  await fetch(`${API}/api/tasks/${activeEditTaskId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  closeEditTaskModal();
+  loadTodayTasks();
+  loadAllTasks();
+}
+window.submitEditTask = submitEditTask;
+
+function closeEditTaskModal() {
+  const modal = document.getElementById('edit-task-modal');
+  if (modal) modal.style.display = 'none';
+  activeEditTaskId = null;
+}
+window.closeEditTaskModal = closeEditTaskModal;
 
 // ── MOOD ────────────────────────────────────────────────────────
 function setMood(field, val, btn) {
@@ -290,11 +377,167 @@ async function chatWithSensei() {
   }
 }
 
+async function createTasksWithSensei() {
+  const input = document.getElementById('chat-input');
+  const msg = input.value.trim();
+  if (!msg) return;
+  const responseEl = document.getElementById('sensei-response');
+  responseEl.innerHTML = `<div class="sensei-loading"><div class="sensei-loading__brush">筆</div><p>先生が計画を作成中 · Sensei is creating tasks...</p></div>`;
+  try {
+    const res = await fetch(`${API}/api/ai/create-task`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: msg, dry_run: true })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Could not generate plan');
+    pendingTaskProposal = data.proposal || [];
+    responseEl.innerHTML = `
+      <div class="sensei-message">
+        <div class="sensei-message__header">◆ 提案プラン · Proposed Plan</div>
+        ${pendingTaskProposal.length ? pendingTaskProposal.map(t => `・${escHtml(t.title)} (${escHtml(String(t.duration_minutes))} min)`).join('<br>') : 'No valid tasks were generated.'}
+        <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn-ink btn-ink--sm" id="confirm-task-plan-btn">同意して作成 · Agree & Create</button>
+          <button class="btn-ink btn-ink--sm" id="revise-task-plan-btn">変更したい · Make Changes</button>
+        </div>
+      </div>`;
+    const confirmBtn = document.getElementById('confirm-task-plan-btn');
+    const reviseBtn = document.getElementById('revise-task-plan-btn');
+    if (confirmBtn) confirmBtn.addEventListener('click', confirmTaskProposal);
+    if (reviseBtn) reviseBtn.addEventListener('click', () => {
+      pendingTaskProposal = null;
+      responseEl.innerHTML = `<div class="sensei-message">了解です。変更したい点をチャットで教えてください · Got it—tell me what to change, and I’ll propose a new plan.</div>`;
+    });
+  } catch (e) {
+    responseEl.innerHTML = `<div class="sensei-message" style="color:var(--cinnabar)">作成失敗 · ${escHtml(String(e.message || e))}</div>`;
+  }
+}
+
+async function confirmTaskProposal() {
+  if (!pendingTaskProposal || !pendingTaskProposal.length) return;
+  const responseEl = document.getElementById('sensei-response');
+  responseEl.innerHTML = `<div class="sensei-loading"><div class="sensei-loading__brush">筆</div><p>提案を保存しています · Saving approved plan...</p></div>`;
+  try {
+    const res = await fetch(`${API}/api/ai/create-task`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ proposed_tasks: pendingTaskProposal })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Could not create tasks');
+    responseEl.innerHTML = `
+      <div class="sensei-message">
+        <div class="sensei-message__header">◆ 作成完了 · Tasks Created</div>
+        Created ${data.count} task(s).<br>
+        ${data.created.map(t => `・${escHtml(t.title)}`).join('<br>')}
+      </div>`;
+    pendingTaskProposal = null;
+    document.getElementById('chat-input').value = '';
+    loadTodayTasks();
+  } catch (e) {
+    responseEl.innerHTML = `<div class="sensei-message" style="color:var(--cinnabar)">保存失敗 · ${escHtml(String(e.message || e))}</div>`;
+  }
+}
+
+function renderChecklist(task) {
+  if (!task.checklist || !task.checklist.length) return '';
+  const checklistItems = normalizeChecklist(task.checklist);
+
+  if (!checklistItems.length) return '';
+  return `<ul style="margin:6px 0 0 16px;padding:0;font-size:12px;color:var(--ink-light);">
+    ${checklistItems.map((item, idx) => `<li>
+      <label style="display:flex;gap:6px;align-items:flex-start;">
+        <input type="checkbox" ${item.completed ? 'checked' : ''} onchange="toggleChecklistItem('${task.id}', ${idx}, this.checked)">
+        <span>${escHtml(item.text || '')}</span>
+      </label>
+    </li>`).join('')}
+  </ul>`;
+}
+
+function normalizeChecklist(checklist) {
+  return (checklist || []).map((item) => {
+    if (typeof item === 'string') {
+      return parseChecklistText(item);
+    }
+    if (item && typeof item === 'object' && typeof item.text === 'object') {
+      return {
+        text: String(item.text.text || ''),
+        completed: Boolean(item.completed || item.text.completed)
+      };
+    }
+    const parsed = parseChecklistText(item?.text || '');
+    return { text: parsed.text, completed: Boolean(item?.completed || parsed.completed) };
+  }).filter(i => i.text);
+}
+
+function parseChecklistText(rawText) {
+  const text = String(rawText || '').trim();
+  if (!text) return { text: '', completed: false };
+  if (text.startsWith('{') && text.endsWith('}')) {
+    const asJson = text
+      .replace(/'/g, '"')
+      .replace(/\bTrue\b/g, 'true')
+      .replace(/\bFalse\b/g, 'false');
+    try {
+      const parsed = JSON.parse(asJson);
+      if (parsed && typeof parsed === 'object') {
+        return {
+          text: String(parsed.text || '').trim(),
+          completed: Boolean(parsed.completed)
+        };
+      }
+    } catch (e) { /* fall through */ }
+  }
+  return { text, completed: false };
+}
+
+async function toggleChecklistItem(taskId, index, checked) {
+  const task = taskCache.get(taskId);
+  if (!task) return;
+  const checklist = normalizeChecklist(task.checklist);
+  if (!checklist[index]) return;
+  checklist[index].completed = checked;
+  task.checklist = checklist;
+  const payload = { checklist };
+  if (task.instance_date) payload.instance_date = task.instance_date;
+  await fetch(`${API}/api/tasks/${taskId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  loadTodayTasks();
+  const allTasksPanel = document.getElementById('panel-tasks');
+  if (allTasksPanel && allTasksPanel.classList.contains('panel--active')) {
+    loadAllTasks();
+  }
+}
+window.toggleChecklistItem = toggleChecklistItem;
+
+function checklistToLines(checklist) {
+  return normalizeChecklist(checklist).map(item => `${item.completed ? '[x]' : '[ ]'} ${item.text}`).join('\n');
+}
+
+function linesToChecklist(text) {
+  return String(text || '')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+    .map(line => {
+      const completed = /^\[x\]/i.test(line);
+      const cleaned = line.replace(/^\[(x| )\]\s*/i, '').trim();
+      return { text: cleaned || line, completed };
+    });
+}
+
 // Enter key for chat
 document.addEventListener('DOMContentLoaded', () => {
   const chatInput = document.getElementById('chat-input');
   if (chatInput) {
     chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') chatWithSensei(); });
+  }
+  const createBtn = document.getElementById('sensei-create-btn');
+  if (createBtn) {
+    createBtn.addEventListener('click', createTasksWithSensei);
   }
 });
 
