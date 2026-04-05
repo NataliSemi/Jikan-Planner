@@ -456,6 +456,47 @@ html, body {
 .feedback-msg.ok  { color: var(--green); }
 .feedback-msg.err { color: var(--cinnabar); }
 
+/* ── REMINDER TOASTS ── */
+.toast-stack {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 10000;
+}
+.task-toast {
+  min-width: 220px;
+  max-width: 320px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-mid);
+  border-left: 3px solid var(--sakura);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  box-shadow: var(--shadow);
+  transition: opacity .28s ease, transform .28s ease;
+}
+.task-toast__title {
+  font-family: 'Noto Sans JP', sans-serif;
+  font-size: 10px;
+  color: var(--sakura);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.task-toast__body {
+  margin-top: 4px;
+  font-family: 'Noto Serif JP', serif;
+  font-size: 13px;
+  color: var(--text);
+}
+.task-toast__meta {
+  margin-top: 3px;
+  font-family: 'Noto Sans JP', sans-serif;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
 /* ── ACTIVITY COLOURS ── */
 [data-type="learning"] { border-left-color: var(--col-learning) !important; }
 [data-type="reading"]  { border-left-color: var(--col-reading)  !important; }

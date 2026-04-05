@@ -9,6 +9,11 @@ const mood = { energy: null, focus: null, mood: null };
 let pendingTaskProposal = null;
 const taskCache = new Map();
 let activeEditTaskId = null;
+const reminderState = {
+  interval: null,
+  notified: new Set(),
+  storageKey: 'jikan-reminder-history',
+};
 
 // ── Init ────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -16,6 +21,9 @@ document.addEventListener('DOMContentLoaded', () => {
   loadTodayTasks();
   prefillDate();
   loadTodayMood();
+  hydrateReminderHistory();
+  requestNotificationPermission();
+  startReminderLoop();
 });
 
 function setTodayDate() {
@@ -184,6 +192,7 @@ async function createTask() {
     });
     if (res.ok) {
       setFeedback(fb, '✓ 登録しました · Task added', 'ok');
+      zenSound('task_created');
       document.getElementById('task-title').value = '';
       document.getElementById('task-notes').value = '';
       document.getElementById('task-checklist').value = '';
@@ -323,6 +332,7 @@ async function loadTodayMood() {
 
 // ── AI SENSEI ───────────────────────────────────────────────────
 async function fetchAI(type) {
+  zenSound('sensei');
   const responseEl = document.getElementById('sensei-response');
   const endpoints = { schedule: '/api/ai/schedule', suggest: '/api/ai/suggest', remind: '/api/ai/remind' };
   const typeLabels = { schedule: '予定の知恵 · Schedule Wisdom', suggest: '提案 · Suggestion', remind: '励まし · Encouragement' };
@@ -350,6 +360,7 @@ async function chatWithSensei() {
   const input = document.getElementById('chat-input');
   const msg = input.value.trim();
   if (!msg) return;
+  zenSound('sensei');
 
   const responseEl = document.getElementById('sensei-response');
   responseEl.innerHTML = `
@@ -381,6 +392,7 @@ async function createTasksWithSensei() {
   const input = document.getElementById('chat-input');
   const msg = input.value.trim();
   if (!msg) return;
+  zenSound('sensei');
   const responseEl = document.getElementById('sensei-response');
   responseEl.innerHTML = `<div class="sensei-loading"><div class="sensei-loading__brush">筆</div><p>先生が計画を作成中 · Sensei is creating tasks...</p></div>`;
   try {
@@ -621,6 +633,108 @@ function setFeedback(el, msg, cls) {
   setTimeout(() => { el.textContent = ''; el.className = 'feedback-msg'; }, 4000);
 }
 
+// ── REMINDERS / NOTIFICATIONS ───────────────────────────────────
+function hydrateReminderHistory() {
+  try {
+    const raw = localStorage.getItem(reminderState.storageKey);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return;
+    reminderState.notified = new Set(parsed);
+  } catch (e) {
+    reminderState.notified = new Set();
+  }
+}
+
+function persistReminderHistory() {
+  try {
+    const recent = [...reminderState.notified].slice(-200);
+    localStorage.setItem(reminderState.storageKey, JSON.stringify(recent));
+  } catch (e) { /* ignore storage failures */ }
+}
+
+function requestNotificationPermission() {
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'default') {
+    Notification.requestPermission().catch(() => {});
+  }
+}
+
+function startReminderLoop() {
+  if (reminderState.interval) clearInterval(reminderState.interval);
+  runReminderCheck(); // immediate
+  reminderState.interval = setInterval(runReminderCheck, 30 * 1000);
+}
+
+async function runReminderCheck() {
+  const now = new Date();
+  const today = todayISO();
+  let tasks = [];
+  try {
+    const res = await fetch(`${API}/api/tasks/today`);
+    tasks = await res.json();
+  } catch (e) {
+    return;
+  }
+
+  tasks.forEach(task => {
+    if (!task || task.completed || !task.scheduled_time) return;
+    const taskDate = task.instance_date || task.scheduled_date || today;
+    if (taskDate !== today) return;
+    const [hoursStr, minsStr] = String(task.scheduled_time).split(':');
+    const hours = Number(hoursStr);
+    const mins = Number(minsStr);
+    if (!Number.isFinite(hours) || !Number.isFinite(mins)) return;
+
+    const dueAt = new Date(now);
+    dueAt.setHours(hours, mins, 0, 0);
+    const deltaMs = now.getTime() - dueAt.getTime();
+    // Notify once, from due time up to 59s after.
+    if (deltaMs < 0 || deltaMs > 59 * 1000) return;
+
+    const reminderId = `${task.id}|${taskDate}|${task.scheduled_time}`;
+    if (reminderState.notified.has(reminderId)) return;
+    reminderState.notified.add(reminderId);
+    persistReminderHistory();
+    showTaskReminder(task, taskDate);
+  });
+}
+
+function showTaskReminder(task, taskDate) {
+  const when = `${taskDate} ${task.scheduled_time}`;
+  const body = `${task.title} · ${task.duration_minutes || '?'} min`;
+  zenSound('warning');
+
+  if ('Notification' in window && Notification.permission === 'granted') {
+    try {
+      new Notification('⏰ Task reminder', { body: `${body}\n${when}`, tag: `jikan-${task.id}` });
+    } catch (e) { /* ignore */ }
+  }
+
+  const containerId = 'jikan-toast-stack';
+  let stack = document.getElementById(containerId);
+  if (!stack) {
+    stack = document.createElement('div');
+    stack.id = containerId;
+    stack.className = 'toast-stack';
+    document.body.appendChild(stack);
+  }
+
+  const toast = document.createElement('div');
+  toast.className = 'task-toast';
+  toast.innerHTML = `
+    <div class="task-toast__title">⏰ Reminder</div>
+    <div class="task-toast__body">${escHtml(task.title)}</div>
+    <div class="task-toast__meta">${escHtml(when)}</div>
+  `;
+  stack.appendChild(toast);
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateY(-6px)';
+    setTimeout(() => toast.remove(), 280);
+  }, 5000);
+}
+
 /* ================================================================
    POMODORO TIMER — 集中
    ================================================================ */
@@ -662,6 +776,7 @@ function pomoToggle() {
 
 function pomoStart() {
   POMO.running = true;
+  zenSound('timer_start');
   const btn = document.getElementById('pomo-start-btn');
   const lbl = document.getElementById('pomo-start-label');
   btn.classList.add('running');
@@ -680,6 +795,7 @@ function pomoStart() {
 
 function pomoPause() {
   POMO.running = false;
+  zenSound('timer_stop');
   clearInterval(POMO.interval);
   stopTicking();
   const btn = document.getElementById('pomo-start-btn');
@@ -1039,6 +1155,45 @@ function soundTaskDone() {
 }
 
 /**
+ * 作成の鈴 Sakusei — warm upward two-tone cue.
+ * Used when a new task is created successfully.
+ */
+function soundTaskCreated() {
+  try {
+    const ctx = getAudioCtx();
+    const t = ctx.currentTime;
+    playTone(ctx, 494, 0.22, 0.003, 1.2, t, 'sine');
+    playTone(ctx, 622, 0.25, 0.003, 1.6, t + 0.16, 'sine');
+  } catch(e) {}
+}
+
+/**
+ * 先生の合図 Sensei cue — light contemplative chime.
+ * Used when asking AI Sensei for guidance.
+ */
+function soundSenseiCue() {
+  try {
+    const ctx = getAudioCtx();
+    const t = ctx.currentTime;
+    playTone(ctx, 432, 0.16, 0.002, 1.2, t, 'sine');
+    playTone(ctx, 576, 0.14, 0.002, 1.0, t + 0.12, 'triangle');
+  } catch(e) {}
+}
+
+/**
+ * タイマー停止 Timer stop — short muted click+tone.
+ * Used when pausing the Pomodoro timer.
+ */
+function soundTimerStop() {
+  try {
+    const ctx = getAudioCtx();
+    const t = ctx.currentTime;
+    playTick(ctx, t);
+    playTone(ctx, 320, 0.08, 0.001, 0.35, t, 'sine');
+  } catch(e) {}
+}
+
+/**
  * 警告の鐘 Keikoku — three urgent soft pings rising in pitch.
  * Used at 60-second warning before session ends.
  */
@@ -1083,7 +1238,7 @@ function stopTicking() {
 
 /**
  * Play a named zen sound if sound is enabled.
- * Names: 'kane' | 'rin' | 'daisho' | 'focus_start' | 'task_done' | 'warning'
+ * Names: 'kane' | 'rin' | 'daisho' | 'focus_start' | 'task_done' | 'task_created' | 'sensei' | 'timer_start' | 'timer_stop' | 'warning'
  */
 function zenSound(name) {
   if (!POMO.soundEnabled) return;
@@ -1092,7 +1247,11 @@ function zenSound(name) {
     rin:         soundRin,
     daisho:      soundDaisho,
     focus_start: soundFocusStart,
+    timer_start: soundFocusStart,
+    timer_stop:  soundTimerStop,
     task_done:   soundTaskDone,
+    task_created: soundTaskCreated,
+    sensei:      soundSenseiCue,
     warning:     soundWarning,
   };
   if (map[name]) map[name]();
