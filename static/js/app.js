@@ -8,6 +8,7 @@ const API = '';  // same-origin
 const mood = { energy: null, focus: null, mood: null };
 let pendingTaskProposal = null;
 const taskCache = new Map();
+let activeEditTaskId = null;
 
 // ── Init ────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -215,30 +216,69 @@ async function deleteTask(id, isToday) {
   if (isToday) loadTodayTasks(); else loadAllTasks();
 }
 
-async function openEditTask(id) {
+function openEditTask(id) {
   const task = taskCache.get(id);
   if (!task) return alert('Task details not loaded yet. Please refresh and try again.');
+  activeEditTaskId = id;
+  const modal = document.getElementById('edit-task-modal');
+  if (!modal) return;
 
-  const title = prompt('Edit title', task.title || '');
-  if (title === null || !title.trim()) return;
-  const durationRaw = prompt('Edit duration (minutes)', String(task.duration_minutes || 30));
-  if (durationRaw === null) return;
-  const duration = parseInt(durationRaw, 10);
-  if (!Number.isFinite(duration) || duration <= 0) return alert('Invalid duration');
-  const notes = prompt('Edit notes', task.notes || '');
-  if (notes === null) return;
+  document.getElementById('edit-task-title').value = task.title || '';
+  document.getElementById('edit-task-type').value = task.activity_type || 'learning';
+  document.getElementById('edit-task-duration').value = task.duration_minutes || 30;
+  document.getElementById('edit-task-date').value = task.scheduled_date || '';
+  document.getElementById('edit-task-time').value = task.scheduled_time || '';
+  document.getElementById('edit-task-notes').value = task.notes || '';
+  document.getElementById('edit-task-checklist').value = checklistToLines(task.checklist || []);
+  document.querySelectorAll('.edit-recurring-day').forEach(el => { el.checked = false; });
+  const days = task.recurrence?.weekdays || [];
+  days.forEach(day => {
+    const checkbox = document.querySelector(`.edit-recurring-day[value="${day}"]`);
+    if (checkbox) checkbox.checked = true;
+  });
+  modal.style.display = 'flex';
+}
+window.openEditTask = openEditTask;
 
-  const payload = { title: title.trim(), duration_minutes: duration, notes };
+async function submitEditTask() {
+  if (!activeEditTaskId) return;
+  const task = taskCache.get(activeEditTaskId) || {};
+  const title = document.getElementById('edit-task-title').value.trim();
+  if (!title) return alert('Title is required');
+  const duration = parseInt(document.getElementById('edit-task-duration').value, 10);
+  if (!Number.isFinite(duration) || duration <= 0) return alert('Duration must be a positive number');
+
+  const recurrenceDays = [...document.querySelectorAll('.edit-recurring-day:checked')].map(el => el.value);
+  const payload = {
+    title,
+    activity_type: document.getElementById('edit-task-type').value,
+    duration_minutes: duration,
+    scheduled_date: document.getElementById('edit-task-date').value || null,
+    scheduled_time: document.getElementById('edit-task-time').value || null,
+    notes: document.getElementById('edit-task-notes').value.trim() || null,
+    checklist: linesToChecklist(document.getElementById('edit-task-checklist').value),
+    recurrence: recurrenceDays.length ? { frequency: 'weekly', weekdays: recurrenceDays } : null,
+  };
+
   if (task.instance_date) payload.instance_date = task.instance_date;
-  await fetch(`${API}/api/tasks/${id}`, {
+
+  await fetch(`${API}/api/tasks/${activeEditTaskId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   });
+  closeEditTaskModal();
   loadTodayTasks();
   loadAllTasks();
 }
-window.openEditTask = openEditTask;
+window.submitEditTask = submitEditTask;
+
+function closeEditTaskModal() {
+  const modal = document.getElementById('edit-task-modal');
+  if (modal) modal.style.display = 'none';
+  activeEditTaskId = null;
+}
+window.closeEditTaskModal = closeEditTaskModal;
 
 // ── MOOD ────────────────────────────────────────────────────────
 function setMood(field, val, btn) {
@@ -401,7 +441,21 @@ async function confirmTaskProposal() {
 
 function renderChecklist(task) {
   if (!task.checklist || !task.checklist.length) return '';
-  const checklistItems = task.checklist.map((item) => {
+  const checklistItems = normalizeChecklist(task.checklist);
+
+  if (!checklistItems.length) return '';
+  return `<ul style="margin:6px 0 0 16px;padding:0;font-size:12px;color:var(--ink-light);">
+    ${checklistItems.map((item, idx) => `<li>
+      <label style="display:flex;gap:6px;align-items:flex-start;">
+        <input type="checkbox" ${item.completed ? 'checked' : ''} onchange="toggleChecklistItem('${task.id}', ${idx}, this.checked)">
+        <span>${escHtml(item.text || '')}</span>
+      </label>
+    </li>`).join('')}
+  </ul>`;
+}
+
+function normalizeChecklist(checklist) {
+  return (checklist || []).map((item) => {
     if (typeof item === 'string') {
       return { text: item, completed: false };
     }
@@ -413,11 +467,40 @@ function renderChecklist(task) {
     }
     return { text: String(item?.text || ''), completed: Boolean(item?.completed) };
   }).filter(i => i.text);
+}
 
-  if (!checklistItems.length) return '';
-  return `<ul style="margin:6px 0 0 16px;padding:0;font-size:12px;color:var(--ink-light);">
-    ${checklistItems.map(item => `<li>${item.completed ? '☑' : '☐'} ${escHtml(item.text || '')}</li>`).join('')}
-  </ul>`;
+async function toggleChecklistItem(taskId, index, checked) {
+  const task = taskCache.get(taskId);
+  if (!task) return;
+  const checklist = normalizeChecklist(task.checklist);
+  if (!checklist[index]) return;
+  checklist[index].completed = checked;
+  task.checklist = checklist;
+  const payload = { checklist };
+  if (task.instance_date) payload.instance_date = task.instance_date;
+  await fetch(`${API}/api/tasks/${taskId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  loadTodayTasks();
+}
+window.toggleChecklistItem = toggleChecklistItem;
+
+function checklistToLines(checklist) {
+  return normalizeChecklist(checklist).map(item => `${item.completed ? '[x]' : '[ ]'} ${item.text}`).join('\n');
+}
+
+function linesToChecklist(text) {
+  return String(text || '')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+    .map(line => {
+      const completed = /^\[x\]/i.test(line);
+      const cleaned = line.replace(/^\[(x| )\]\s*/i, '').trim();
+      return { text: cleaned || line, completed };
+    });
 }
 
 // Enter key for chat
