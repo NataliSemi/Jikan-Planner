@@ -9,6 +9,11 @@ const mood = { energy: null, focus: null, mood: null };
 let pendingTaskProposal = null;
 const taskCache = new Map();
 let activeEditTaskId = null;
+const reminderState = {
+  interval: null,
+  notified: new Set(),
+  storageKey: 'jikan-reminder-history',
+};
 
 // ── Init ────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -16,6 +21,9 @@ document.addEventListener('DOMContentLoaded', () => {
   loadTodayTasks();
   prefillDate();
   loadTodayMood();
+  hydrateReminderHistory();
+  requestNotificationPermission();
+  startReminderLoop();
 });
 
 function setTodayDate() {
@@ -623,6 +631,108 @@ function setFeedback(el, msg, cls) {
   el.textContent = msg;
   el.className = `feedback-msg ${cls}`;
   setTimeout(() => { el.textContent = ''; el.className = 'feedback-msg'; }, 4000);
+}
+
+// ── REMINDERS / NOTIFICATIONS ───────────────────────────────────
+function hydrateReminderHistory() {
+  try {
+    const raw = localStorage.getItem(reminderState.storageKey);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return;
+    reminderState.notified = new Set(parsed);
+  } catch (e) {
+    reminderState.notified = new Set();
+  }
+}
+
+function persistReminderHistory() {
+  try {
+    const recent = [...reminderState.notified].slice(-200);
+    localStorage.setItem(reminderState.storageKey, JSON.stringify(recent));
+  } catch (e) { /* ignore storage failures */ }
+}
+
+function requestNotificationPermission() {
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'default') {
+    Notification.requestPermission().catch(() => {});
+  }
+}
+
+function startReminderLoop() {
+  if (reminderState.interval) clearInterval(reminderState.interval);
+  runReminderCheck(); // immediate
+  reminderState.interval = setInterval(runReminderCheck, 30 * 1000);
+}
+
+async function runReminderCheck() {
+  const now = new Date();
+  const today = todayISO();
+  let tasks = [];
+  try {
+    const res = await fetch(`${API}/api/tasks/today`);
+    tasks = await res.json();
+  } catch (e) {
+    return;
+  }
+
+  tasks.forEach(task => {
+    if (!task || task.completed || !task.scheduled_time) return;
+    const taskDate = task.instance_date || task.scheduled_date || today;
+    if (taskDate !== today) return;
+    const [hoursStr, minsStr] = String(task.scheduled_time).split(':');
+    const hours = Number(hoursStr);
+    const mins = Number(minsStr);
+    if (!Number.isFinite(hours) || !Number.isFinite(mins)) return;
+
+    const dueAt = new Date(now);
+    dueAt.setHours(hours, mins, 0, 0);
+    const deltaMs = now.getTime() - dueAt.getTime();
+    // Notify once, from due time up to 59s after.
+    if (deltaMs < 0 || deltaMs > 59 * 1000) return;
+
+    const reminderId = `${task.id}|${taskDate}|${task.scheduled_time}`;
+    if (reminderState.notified.has(reminderId)) return;
+    reminderState.notified.add(reminderId);
+    persistReminderHistory();
+    showTaskReminder(task, taskDate);
+  });
+}
+
+function showTaskReminder(task, taskDate) {
+  const when = `${taskDate} ${task.scheduled_time}`;
+  const body = `${task.title} · ${task.duration_minutes || '?'} min`;
+  zenSound('warning');
+
+  if ('Notification' in window && Notification.permission === 'granted') {
+    try {
+      new Notification('⏰ Task reminder', { body: `${body}\n${when}`, tag: `jikan-${task.id}` });
+    } catch (e) { /* ignore */ }
+  }
+
+  const containerId = 'jikan-toast-stack';
+  let stack = document.getElementById(containerId);
+  if (!stack) {
+    stack = document.createElement('div');
+    stack.id = containerId;
+    stack.className = 'toast-stack';
+    document.body.appendChild(stack);
+  }
+
+  const toast = document.createElement('div');
+  toast.className = 'task-toast';
+  toast.innerHTML = `
+    <div class="task-toast__title">⏰ Reminder</div>
+    <div class="task-toast__body">${escHtml(task.title)}</div>
+    <div class="task-toast__meta">${escHtml(when)}</div>
+  `;
+  stack.appendChild(toast);
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateY(-6px)';
+    setTimeout(() => toast.remove(), 280);
+  }, 5000);
 }
 
 /* ================================================================
