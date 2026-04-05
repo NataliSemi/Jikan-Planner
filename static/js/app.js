@@ -142,19 +142,21 @@ function renderAllTasks(tasks, container) {
 
   container.innerHTML = `<div class="task-list">${tasks.map(t => `
     <div class="task-row ${t.completed ? 'completed' : ''}" data-type="${t.activity_type}">
-      <div>
+      <div class="task-row__content">
         <div class="task-row__title">${escHtml(t.title)}</div>
-        <div style="display:flex;gap:10px;margin-top:4px;">
+        <div class="task-row__meta">
           <span class="tl-badge badge-${t.activity_type}">${typeLabel(t.activity_type)}</span>
           <span class="task-row__date">${t.scheduled_date || ''} ${t.scheduled_time || ''} · ${t.duration_minutes}min</span>
           ${t.recurrence?.weekdays?.length ? `<span class="task-row__date">↻ ${t.recurrence.weekdays.join(', ')}</span>` : ''}
         </div>
         ${renderChecklist(t)}
       </div>
-      <span style="font-size:12px;color:var(--ink-faint);font-family:'Noto Sans JP'">${t.completed ? '✓ 完了' : '未完'}</span>
-      ${!t.completed ? `<button class="tl-btn tl-btn--done" onclick="markDone('${t.id}', '${t.instance_date || ''}')">完了</button>` : '<span></span>'}
-      <button class="tl-btn" onclick="openEditTask('${t.id}')">編集</button>
-      <button class="tl-btn tl-btn--del" onclick="deleteTask('${t.id}', false)">削除</button>
+      <div class="task-row__actions">
+        <span class="task-row__status">${t.completed ? '✓ 完了' : '未完'}</span>
+        ${!t.completed ? `<button class="tl-btn tl-btn--done" onclick="markDone('${t.id}', '${t.instance_date || ''}')">完了</button>` : ''}
+        <button class="tl-btn task-row__edit-btn" onclick="openEditTask('${t.id}')">編集</button>
+        <button class="tl-btn tl-btn--del" onclick="deleteTask('${t.id}', false)">削除</button>
+      </div>
     </div>
   `).join('')}</div>`;
 }
