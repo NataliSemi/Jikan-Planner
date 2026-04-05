@@ -143,6 +143,22 @@ def _extract_json_block(raw_text: str) -> dict:
         raise
 
 
+def _parse_checklist_text(raw_value) -> tuple[str, bool]:
+    text = str(raw_value).strip()
+    if not text:
+        return "", False
+    if text.startswith("{") and text.endswith("}"):
+        try:
+            obj = json.loads(text.replace("'", '"').replace(" True", " true").replace(" False", " false"))
+            if isinstance(obj, dict):
+                parsed_text = str(obj.get("text", "")).strip()
+                parsed_completed = bool(obj.get("completed", False))
+                return parsed_text, parsed_completed
+        except json.JSONDecodeError:
+            pass
+    return text, False
+
+
 @router.post("/mood")
 async def save_mood(mood: MoodCheckIn):
     return store.save_mood(mood.model_dump())
@@ -241,11 +257,12 @@ async def create_task_from_ai(body: dict):
         checklist = []
         for entry in item.get("checklist", []):
             if isinstance(entry, dict):
-                text = str(entry.get("text", "")).strip()
+                text, fallback_completed = _parse_checklist_text(entry.get("text", ""))
                 completed = bool(entry.get("completed", False))
+                if not completed and fallback_completed:
+                    completed = fallback_completed
             else:
-                text = str(entry).strip()
-                completed = False
+                text, completed = _parse_checklist_text(entry)
             if text:
                 checklist.append({"text": text, "completed": completed})
         weekdays = [str(day).lower() for day in item.get("recurrence_weekdays", []) if str(day).strip()]

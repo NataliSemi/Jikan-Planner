@@ -457,7 +457,7 @@ function renderChecklist(task) {
 function normalizeChecklist(checklist) {
   return (checklist || []).map((item) => {
     if (typeof item === 'string') {
-      return { text: item, completed: false };
+      return parseChecklistText(item);
     }
     if (item && typeof item === 'object' && typeof item.text === 'object') {
       return {
@@ -465,8 +465,30 @@ function normalizeChecklist(checklist) {
         completed: Boolean(item.completed || item.text.completed)
       };
     }
-    return { text: String(item?.text || ''), completed: Boolean(item?.completed) };
+    const parsed = parseChecklistText(item?.text || '');
+    return { text: parsed.text, completed: Boolean(item?.completed || parsed.completed) };
   }).filter(i => i.text);
+}
+
+function parseChecklistText(rawText) {
+  const text = String(rawText || '').trim();
+  if (!text) return { text: '', completed: false };
+  if (text.startsWith('{') && text.endsWith('}')) {
+    const asJson = text
+      .replace(/'/g, '"')
+      .replace(/\bTrue\b/g, 'true')
+      .replace(/\bFalse\b/g, 'false');
+    try {
+      const parsed = JSON.parse(asJson);
+      if (parsed && typeof parsed === 'object') {
+        return {
+          text: String(parsed.text || '').trim(),
+          completed: Boolean(parsed.completed)
+        };
+      }
+    } catch (e) { /* fall through */ }
+  }
+  return { text, completed: false };
 }
 
 async function toggleChecklistItem(taskId, index, checked) {
@@ -484,6 +506,10 @@ async function toggleChecklistItem(taskId, index, checked) {
     body: JSON.stringify(payload)
   });
   loadTodayTasks();
+  const allTasksPanel = document.getElementById('panel-tasks');
+  if (allTasksPanel && allTasksPanel.classList.contains('panel--active')) {
+    loadAllTasks();
+  }
 }
 window.toggleChecklistItem = toggleChecklistItem;
 
