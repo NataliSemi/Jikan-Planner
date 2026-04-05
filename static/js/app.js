@@ -7,6 +7,7 @@ const API = '';  // same-origin
 // ── State ──────────────────────────────────────────────────────
 const mood = { energy: null, focus: null, mood: null };
 let pendingTaskProposal = null;
+const taskCache = new Map();
 
 // ── Init ────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -76,6 +77,7 @@ function renderTimeline(tasks, container) {
 
   // Sort by scheduled time
   tasks.sort((a, b) => (a.scheduled_time || '99:99').localeCompare(b.scheduled_time || '99:99'));
+  tasks.forEach(t => taskCache.set(t.id, t));
 
   container.innerHTML = tasks.map(t => `
     <div class="timeline-item ${t.completed ? 'completed' : ''}" data-type="${t.activity_type}">
@@ -92,6 +94,7 @@ function renderTimeline(tasks, container) {
       </div>
       <div class="tl-actions">
         ${!t.completed ? `<button class="tl-btn tl-btn--done" onclick="markDone('${t.id}', '${t.instance_date || ''}')">完了</button>` : '<span style="font-size:11px;color:var(--col-reading)">✓ Done</span>'}
+        <button class="tl-btn" onclick="openEditTask('${t.id}')">編集</button>
         <button class="tl-btn tl-btn--del" onclick="deleteTask('${t.id}', true)">削除</button>
       </div>
     </div>
@@ -126,6 +129,7 @@ function renderAllTasks(tasks, container) {
   }
 
   tasks.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+  tasks.forEach(t => taskCache.set(t.id, t));
 
   container.innerHTML = `<div class="task-list">${tasks.map(t => `
     <div class="task-row ${t.completed ? 'completed' : ''}" data-type="${t.activity_type}">
@@ -140,6 +144,7 @@ function renderAllTasks(tasks, container) {
       </div>
       <span style="font-size:12px;color:var(--ink-faint);font-family:'Noto Sans JP'">${t.completed ? '✓ 完了' : '未完'}</span>
       ${!t.completed ? `<button class="tl-btn tl-btn--done" onclick="markDone('${t.id}', '${t.instance_date || ''}')">完了</button>` : '<span></span>'}
+      <button class="tl-btn" onclick="openEditTask('${t.id}')">編集</button>
       <button class="tl-btn tl-btn--del" onclick="deleteTask('${t.id}', false)">削除</button>
     </div>
   `).join('')}</div>`;
@@ -209,6 +214,31 @@ async function deleteTask(id, isToday) {
   await fetch(`${API}/api/tasks/${id}`, { method: 'DELETE' });
   if (isToday) loadTodayTasks(); else loadAllTasks();
 }
+
+async function openEditTask(id) {
+  const task = taskCache.get(id);
+  if (!task) return alert('Task details not loaded yet. Please refresh and try again.');
+
+  const title = prompt('Edit title', task.title || '');
+  if (title === null || !title.trim()) return;
+  const durationRaw = prompt('Edit duration (minutes)', String(task.duration_minutes || 30));
+  if (durationRaw === null) return;
+  const duration = parseInt(durationRaw, 10);
+  if (!Number.isFinite(duration) || duration <= 0) return alert('Invalid duration');
+  const notes = prompt('Edit notes', task.notes || '');
+  if (notes === null) return;
+
+  const payload = { title: title.trim(), duration_minutes: duration, notes };
+  if (task.instance_date) payload.instance_date = task.instance_date;
+  await fetch(`${API}/api/tasks/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  loadTodayTasks();
+  loadAllTasks();
+}
+window.openEditTask = openEditTask;
 
 // ── MOOD ────────────────────────────────────────────────────────
 function setMood(field, val, btn) {
@@ -371,8 +401,22 @@ async function confirmTaskProposal() {
 
 function renderChecklist(task) {
   if (!task.checklist || !task.checklist.length) return '';
+  const checklistItems = task.checklist.map((item) => {
+    if (typeof item === 'string') {
+      return { text: item, completed: false };
+    }
+    if (item && typeof item === 'object' && typeof item.text === 'object') {
+      return {
+        text: String(item.text.text || ''),
+        completed: Boolean(item.completed || item.text.completed)
+      };
+    }
+    return { text: String(item?.text || ''), completed: Boolean(item?.completed) };
+  }).filter(i => i.text);
+
+  if (!checklistItems.length) return '';
   return `<ul style="margin:6px 0 0 16px;padding:0;font-size:12px;color:var(--ink-light);">
-    ${task.checklist.map(item => `<li>${item.completed ? '☑' : '☐'} ${escHtml(item.text || '')}</li>`).join('')}
+    ${checklistItems.map(item => `<li>${item.completed ? '☑' : '☐'} ${escHtml(item.text || '')}</li>`).join('')}
   </ul>`;
 }
 

@@ -238,11 +238,16 @@ async def create_task_from_ai(body: dict):
         if not title or not activity_type or not isinstance(duration, int):
             continue
 
-        checklist = [
-            {"text": str(entry).strip(), "completed": False}
-            for entry in item.get("checklist", [])
-            if str(entry).strip()
-        ]
+        checklist = []
+        for entry in item.get("checklist", []):
+            if isinstance(entry, dict):
+                text = str(entry.get("text", "")).strip()
+                completed = bool(entry.get("completed", False))
+            else:
+                text = str(entry).strip()
+                completed = False
+            if text:
+                checklist.append({"text": text, "completed": completed})
         weekdays = [str(day).lower() for day in item.get("recurrence_weekdays", []) if str(day).strip()]
         recurrence = {"frequency": "weekly", "weekdays": weekdays} if weekdays else None
 
