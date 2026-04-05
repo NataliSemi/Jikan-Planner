@@ -115,6 +115,33 @@ wabi-sabi philosophy, and the concept of ikigai. Keep responses concise, warm, a
 Always respond in English but sprinkle Japanese words naturally.
 Format your response in plain text, no markdown."""
 
+TASK_CREATOR_SYSTEM = """You convert natural language requests into planner tasks.
+Return JSON only with this shape:
+{"tasks":[{"title":"...", "activity_type":"learning|reading|playing|exercise|rest|creative|social", "duration_minutes":30, "scheduled_date":"YYYY-MM-DD or null", "scheduled_time":"HH:MM or null", "notes":"optional", "checklist":["item 1","item 2"], "recurrence_weekdays":["monday","tuesday"]}]}
+Rules:
+- Use at most 5 tasks.
+- If user asks for recurring weekly habits, fill recurrence_weekdays.
+- checklist is optional, but include it when user requests components/steps.
+- If a field is unknown, use null for date/time and [] for arrays.
+- Output valid JSON only.
+"""
+
+
+def _extract_json_block(raw_text: str) -> dict:
+    text = raw_text.strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        if "\n" in text:
+            text = text.split("\n", 1)[1]
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start >= 0 and end > start:
+            return json.loads(text[start:end + 1])
+        raise
+
 
 @router.post("/mood")
 async def save_mood(mood: MoodCheckIn):
@@ -184,3 +211,60 @@ async def chat_with_sensei(body: dict):
         raise HTTPException(status_code=400, detail="Message is required")
     advice = await call_gemini(SENSEI_SYSTEM, message)
     return {"advice": advice, "type": "chat"}
+
+
+@router.post("/create-task")
+async def create_task_from_ai(body: dict):
+    dry_run = bool(body.get("dry_run", False))
+    proposed_tasks = body.get("proposed_tasks")
+    if proposed_tasks is None:
+        message = body.get("message", "").strip()
+        if not message:
+            raise HTTPException(status_code=400, detail="Message is required")
+        ai_response = await call_gemini(TASK_CREATOR_SYSTEM, message)
+        try:
+            parsed = _extract_json_block(ai_response)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=422, detail="Could not parse AI task response")
+        source_tasks = parsed.get("tasks", [])
+    else:
+        source_tasks = proposed_tasks
+
+    normalized_tasks = []
+    for item in source_tasks:
+        title = (item.get("title") or "").strip()
+        activity_type = item.get("activity_type")
+        duration = item.get("duration_minutes")
+        if not title or not activity_type or not isinstance(duration, int):
+            continue
+
+        checklist = []
+        for entry in item.get("checklist", []):
+            if isinstance(entry, dict):
+                text = str(entry.get("text", "")).strip()
+                completed = bool(entry.get("completed", False))
+            else:
+                text = str(entry).strip()
+                completed = False
+            if text:
+                checklist.append({"text": text, "completed": completed})
+        weekdays = [str(day).lower() for day in item.get("recurrence_weekdays", []) if str(day).strip()]
+        recurrence = {"frequency": "weekly", "weekdays": weekdays} if weekdays else None
+
+        normalized_tasks.append({
+            "title": title,
+            "activity_type": activity_type,
+            "duration_minutes": duration,
+            "scheduled_date": item.get("scheduled_date"),
+            "scheduled_time": item.get("scheduled_time"),
+            "notes": item.get("notes"),
+            "checklist": checklist,
+            "recurrence": recurrence,
+            "completion_log": [],
+        })
+
+    if dry_run:
+        return {"proposal": normalized_tasks, "count": len(normalized_tasks), "type": "task-proposal"}
+
+    created = [store.create_task(task) for task in normalized_tasks]
+    return {"created": created, "count": len(created), "type": "create-task"}
