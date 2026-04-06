@@ -40,7 +40,11 @@ function prefillDate() {
 }
 
 function todayISO() {
-  return new Date().toISOString().split('T')[0];
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 // ── Panel Routing ───────────────────────────────────────────────
@@ -65,7 +69,7 @@ async function loadTodayTasks() {
   const container = document.getElementById('today-timeline');
   container.innerHTML = '<div class="loading-scroll">読み込み中...</div>';
   try {
-    const res = await fetch(`${API}/api/tasks/today`);
+    const res = await fetch(`${API}/api/tasks/?date=${todayISO()}`);
     const tasks = await res.json();
     renderTimeline(tasks, container);
   } catch (e) {
@@ -673,7 +677,7 @@ async function runReminderCheck() {
   const today = todayISO();
   let tasks = [];
   try {
-    const res = await fetch(`${API}/api/tasks/today`);
+    const res = await fetch(`${API}/api/tasks/?date=${today}`);
     tasks = await res.json();
   } catch (e) {
     return;
