@@ -350,7 +350,15 @@ async function fetchAI(type) {
     </div>`;
 
   try {
-    const res = await fetch(`${API}${endpoints[type]}`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+    const aiContext = {
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      local_datetime: new Date().toISOString()
+    };
+    const res = await fetch(`${API}${endpoints[type]}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(aiContext)
+    });
     const data = await res.json();
     responseEl.innerHTML = `
       <div class="sensei-message">
@@ -402,10 +410,14 @@ async function createTasksWithSensei() {
   const responseEl = document.getElementById('sensei-response');
   responseEl.innerHTML = `<div class="sensei-loading"><div class="sensei-loading__brush">筆</div><p>先生が計画を作成中 · Sensei is creating tasks...</p></div>`;
   try {
+    const aiContext = {
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      local_datetime: new Date().toISOString()
+    };
     const res = await fetch(`${API}/api/ai/create-task`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: msg, dry_run: true })
+      body: JSON.stringify({ message: msg, dry_run: true, ...aiContext })
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'Could not generate plan');
