@@ -589,7 +589,7 @@ function renderStats(stats, container) {
   const maxMins = Math.max(...Object.values(mbt), 1);
   const typeColors = {
     learning: 'var(--col-learning)', reading: 'var(--col-reading)', playing: 'var(--col-playing)',
-    exercise: 'var(--col-exercise)', rest: 'var(--col-rest)', creative: 'var(--col-creative)', social: 'var(--col-social)'
+    work: 'var(--col-work)', exercise: 'var(--col-exercise)', rest: 'var(--col-rest)', creative: 'var(--col-creative)', social: 'var(--col-social)'
   };
 
   const actBars = Object.entries(mbt).map(([t, mins]) => `
@@ -632,7 +632,7 @@ function renderStats(stats, container) {
 function typeLabel(type) {
   const map = {
     learning: '学習', reading: '読書', playing: '遊び',
-    exercise: '運動', rest: '休息', creative: '創造', social: '交流'
+    work: '仕事', exercise: '運動', rest: '休息', creative: '創造', social: '交流'
   };
   return map[type] || type;
 }

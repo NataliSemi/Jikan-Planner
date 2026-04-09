@@ -118,7 +118,7 @@ Format your response in plain text, no markdown."""
 
 TASK_CREATOR_SYSTEM = """You convert natural language requests into planner tasks.
 Return JSON only with this shape:
-{"tasks":[{"title":"...", "activity_type":"learning|reading|playing|exercise|rest|creative|social", "duration_minutes":30, "scheduled_date":"YYYY-MM-DD or null", "scheduled_time":"HH:MM or null", "notes":"optional", "checklist":["item 1","item 2"], "recurrence_weekdays":["monday","tuesday"]}]}
+{"tasks":[{"title":"...", "activity_type":"learning|reading|playing|work|exercise|rest|creative|social", "duration_minutes":30, "scheduled_date":"YYYY-MM-DD or null", "scheduled_time":"HH:MM or null", "notes":"optional", "checklist":["item 1","item 2"], "recurrence_weekdays":["monday","tuesday"]}]}
 Rules:
 - Use at most 5 tasks.
 - If user asks for recurring weekly habits, fill recurrence_weekdays.
@@ -263,7 +263,8 @@ Local datetime: {ctx["now"].isoformat()}
 Suggest an ideal order and timing for the tasks, and if no tasks exist, suggest a balanced day structure
 covering learning, reading, exercise and rest. Keep it to 5-7 suggestions.
 IMPORTANT: Your timing suggestions must fit the local time window. If local time is late evening/night,
-avoid suggesting morning activities as if they can happen now.\n\nContext:\n{context}"""
+avoid suggesting morning activities as if they can happen now.
+If any task is a work block (e.g. 09:00-17:00), treat it as a fixed anchor and plan around it with realistic short breaks.\n\nContext:\n{context}"""
     advice = await call_gemini(SENSEI_SYSTEM, message)
     return {"advice": advice, "type": "schedule"}
 
@@ -282,7 +283,8 @@ My local datetime: {ctx["now"].isoformat()}
 Please suggest 3 specific activities that would be most beneficial right now.
 For each suggestion, briefly explain why it suits my current state.
 Consider balance between learning, reading, exercise, creative work and rest.
-Only suggest activities that make sense at this local time (for example, no morning walk suggestion at midnight)."""
+Only suggest activities that make sense at this local time (for example, no morning walk suggestion at midnight).
+If the user is currently in a work block, prioritize practical break suggestions (hydration, stretch, short walk, breathing)."""
     advice = await call_gemini(SENSEI_SYSTEM, message)
     return {"advice": advice, "type": "suggestion"}
 

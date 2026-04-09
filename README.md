@@ -8,7 +8,7 @@ A traditional Japanese-inspired time planner with AI guidance, built with **Fast
 
 ## Features
 
-- **📅 Daily Planning** — Schedule tasks across learning, reading, playing, exercise, rest, creative, and social activities
+- **📅 Daily Planning** — Schedule tasks across learning, reading, playing, work, exercise, rest, creative, and social activities
 - **🤖 AI Sensei** — Powered by Claude, gives you schedule recommendations, activity suggestions based on your mood, and gentle motivational reminders
 - **気分 Mood Check-in** — Track your daily energy, focus, and emotional state
 - **📊 Progress Stats** — Visual breakdown of time spent by activity type
@@ -122,6 +122,7 @@ Auto-generated docs available at: `http://localhost:8000/docs`
 | `learning` | 学習 | Studying, courses, skill building |
 | `reading` | 読書 | Books, articles, research |
 | `playing` | 遊び | Games, hobbies, fun |
+| `work` | 仕事 | Job shifts, office blocks, focused work sessions |
 | `exercise` | 運動 | Physical activity, sport, yoga |
 | `rest` | 休息 | Naps, meditation, downtime |
 | `creative` | 創造 | Art, writing, music, making |
