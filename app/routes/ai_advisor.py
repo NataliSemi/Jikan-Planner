@@ -118,7 +118,7 @@ Format your response in plain text, no markdown."""
 
 TASK_CREATOR_SYSTEM = """You convert natural language requests into planner tasks.
 Return JSON only with this shape:
-{"tasks":[{"title":"...", "activity_type":"learning|reading|playing|work|exercise|rest|creative|social", "duration_minutes":30, "scheduled_date":"YYYY-MM-DD or null", "scheduled_time":"HH:MM or null", "notes":"optional", "checklist":["item 1","item 2"], "recurrence_weekdays":["monday","tuesday"]}]}
+{"tasks":[{"title":"...", "activity_type":"learning|reading|playing|work|exercise|rest|creative|social", "duration_minutes":30, "scheduled_date":"YYYY-MM-DD or null", "scheduled_time":"HH:MM or null", "end_time":"HH:MM or null", "notes":"optional", "checklist":["item 1","item 2"], "recurrence_weekdays":["monday","tuesday"]}]}
 Rules:
 - Use at most 5 tasks.
 - If user asks for recurring weekly habits, fill recurrence_weekdays.
@@ -199,6 +199,20 @@ def _normalize_task_dates(tasks: list[dict], message: str, ctx: dict) -> list[di
             task["scheduled_date"] = today_date.isoformat()
 
     return tasks
+
+
+def _duration_from_times(start: str | None, end: str | None) -> int | None:
+    if not start or not end:
+        return None
+    try:
+        start_dt = datetime.strptime(start, "%H:%M")
+        end_dt = datetime.strptime(end, "%H:%M")
+    except ValueError:
+        return None
+    minutes = int((end_dt - start_dt).total_seconds() // 60)
+    if minutes <= 0:
+        return None
+    return minutes
 
 
 def _extract_json_block(raw_text: str) -> dict:
@@ -341,6 +355,10 @@ async def create_task_from_ai(body: dict):
         title = (item.get("title") or "").strip()
         activity_type = item.get("activity_type")
         duration = item.get("duration_minutes")
+        start_time = item.get("scheduled_time")
+        end_time = item.get("end_time")
+        if not isinstance(duration, int):
+            duration = _duration_from_times(start_time, end_time)
         if not title or not activity_type or not isinstance(duration, int):
             continue
 
@@ -363,7 +381,8 @@ async def create_task_from_ai(body: dict):
             "activity_type": activity_type,
             "duration_minutes": duration,
             "scheduled_date": item.get("scheduled_date"),
-            "scheduled_time": item.get("scheduled_time"),
+            "scheduled_time": start_time,
+            "end_time": end_time,
             "notes": item.get("notes"),
             "checklist": checklist,
             "recurrence": recurrence,
