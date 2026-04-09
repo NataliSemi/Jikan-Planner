@@ -350,7 +350,15 @@ async function fetchAI(type) {
     </div>`;
 
   try {
-    const res = await fetch(`${API}${endpoints[type]}`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+    const aiContext = {
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      local_datetime: new Date().toISOString()
+    };
+    const res = await fetch(`${API}${endpoints[type]}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(aiContext)
+    });
     const data = await res.json();
     responseEl.innerHTML = `
       <div class="sensei-message">
@@ -402,10 +410,14 @@ async function createTasksWithSensei() {
   const responseEl = document.getElementById('sensei-response');
   responseEl.innerHTML = `<div class="sensei-loading"><div class="sensei-loading__brush">筆</div><p>先生が計画を作成中 · Sensei is creating tasks...</p></div>`;
   try {
+    const aiContext = {
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      local_datetime: new Date().toISOString()
+    };
     const res = await fetch(`${API}/api/ai/create-task`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: msg, dry_run: true })
+      body: JSON.stringify({ message: msg, dry_run: true, ...aiContext })
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'Could not generate plan');
@@ -577,7 +589,7 @@ function renderStats(stats, container) {
   const maxMins = Math.max(...Object.values(mbt), 1);
   const typeColors = {
     learning: 'var(--col-learning)', reading: 'var(--col-reading)', playing: 'var(--col-playing)',
-    exercise: 'var(--col-exercise)', rest: 'var(--col-rest)', creative: 'var(--col-creative)', social: 'var(--col-social)'
+    work: 'var(--col-work)', exercise: 'var(--col-exercise)', rest: 'var(--col-rest)', creative: 'var(--col-creative)', social: 'var(--col-social)'
   };
 
   const actBars = Object.entries(mbt).map(([t, mins]) => `
@@ -620,7 +632,7 @@ function renderStats(stats, container) {
 function typeLabel(type) {
   const map = {
     learning: '学習', reading: '読書', playing: '遊び',
-    exercise: '運動', rest: '休息', creative: '創造', social: '交流'
+    work: '仕事', exercise: '運動', rest: '休息', creative: '創造', social: '交流'
   };
   return map[type] || type;
 }

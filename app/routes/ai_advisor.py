@@ -4,7 +4,8 @@ import os
 import json
 import asyncio
 import logging
-from datetime import date
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from app import store
 from app.models import MoodCheckIn
 
@@ -117,14 +118,87 @@ Format your response in plain text, no markdown."""
 
 TASK_CREATOR_SYSTEM = """You convert natural language requests into planner tasks.
 Return JSON only with this shape:
-{"tasks":[{"title":"...", "activity_type":"learning|reading|playing|exercise|rest|creative|social", "duration_minutes":30, "scheduled_date":"YYYY-MM-DD or null", "scheduled_time":"HH:MM or null", "notes":"optional", "checklist":["item 1","item 2"], "recurrence_weekdays":["monday","tuesday"]}]}
+{"tasks":[{"title":"...", "activity_type":"learning|reading|playing|work|exercise|rest|creative|social", "duration_minutes":30, "scheduled_date":"YYYY-MM-DD or null", "scheduled_time":"HH:MM or null", "notes":"optional", "checklist":["item 1","item 2"], "recurrence_weekdays":["monday","tuesday"]}]}
 Rules:
 - Use at most 5 tasks.
 - If user asks for recurring weekly habits, fill recurrence_weekdays.
 - checklist is optional, but include it when user requests components/steps.
 - If a field is unknown, use null for date/time and [] for arrays.
+- Resolve relative date phrases (e.g. today, tomorrow, next Monday) against the provided local datetime context.
+- Never invent old/past years unless the user explicitly asks for a historical date.
 - Output valid JSON only.
 """
+
+
+def _resolve_context(body: dict | None = None) -> dict:
+    body = body or {}
+    tz_name = (body.get("timezone") or "UTC").strip()
+    try:
+        tz = ZoneInfo(tz_name)
+    except Exception:
+        tz = ZoneInfo("UTC")
+        tz_name = "UTC"
+
+    now_iso = body.get("local_datetime")
+    now = None
+    if isinstance(now_iso, str) and now_iso.strip():
+        try:
+            now = datetime.fromisoformat(now_iso.replace("Z", "+00:00"))
+            if now.tzinfo is None:
+                now = now.replace(tzinfo=tz)
+            else:
+                now = now.astimezone(tz)
+        except ValueError:
+            now = None
+
+    if now is None:
+        now = datetime.now(tz)
+
+    return {
+        "timezone": tz_name,
+        "now": now,
+        "today": now.date().isoformat(),
+        "hour": now.hour,
+    }
+
+
+def _looks_future_intent(message: str) -> bool:
+    msg = (message or "").lower()
+    tokens = [
+        "tomorrow", "day after tomorrow", "next week", "next month", "next ",
+        "tonight", "this evening", "later today", "later",
+    ]
+    return any(t in msg for t in tokens)
+
+
+def _normalize_task_dates(tasks: list[dict], message: str, ctx: dict) -> list[dict]:
+    if not _looks_future_intent(message):
+        return tasks
+
+    today_date = date.fromisoformat(ctx["today"])
+    tomorrow = (today_date + timedelta(days=1)).isoformat()
+    msg = message.lower()
+
+    for task in tasks:
+        scheduled_date = task.get("scheduled_date")
+        if not isinstance(scheduled_date, str) or not scheduled_date:
+            continue
+        try:
+            parsed = date.fromisoformat(scheduled_date)
+        except ValueError:
+            continue
+
+        if parsed >= today_date:
+            continue
+
+        if "tomorrow" in msg:
+            task["scheduled_date"] = tomorrow
+        elif "today" in msg:
+            task["scheduled_date"] = today_date.isoformat()
+        else:
+            task["scheduled_date"] = today_date.isoformat()
+
+    return tasks
 
 
 def _extract_json_block(raw_text: str) -> dict:
@@ -173,34 +247,44 @@ async def get_today_mood():
 
 
 @router.post("/schedule")
-async def get_schedule_recommendation():
-    tasks = store.get_tasks(date_filter=date.today().isoformat())
+async def get_schedule_recommendation(body: dict | None = None):
+    ctx = _resolve_context(body)
+    tasks = store.get_tasks(date_filter=ctx["today"])
     mood = store.get_today_mood()
     stats = store.get_stats()
     context = f"""
 Today's tasks: {json.dumps(tasks, ensure_ascii=False)}
 Today's mood/energy: {json.dumps(mood, ensure_ascii=False) if mood else 'Not checked in yet'}
 Overall stats: {json.dumps(stats, ensure_ascii=False)}
-Current date: {date.today().isoformat()}
+Local timezone: {ctx["timezone"]}
+Local datetime: {ctx["now"].isoformat()}
 """
     message = f"""Based on this context, please provide a gentle daily schedule recommendation.
 Suggest an ideal order and timing for the tasks, and if no tasks exist, suggest a balanced day structure
-covering learning, reading, exercise and rest. Keep it to 5-7 suggestions.\n\nContext:\n{context}"""
+covering learning, reading, exercise and rest. Keep it to 5-7 suggestions.
+IMPORTANT: Your timing suggestions must fit the local time window. If local time is late evening/night,
+avoid suggesting morning activities as if they can happen now.
+If any task is a work block (e.g. 09:00-17:00), treat it as a fixed anchor and plan around it with realistic short breaks.\n\nContext:\n{context}"""
     advice = await call_gemini(SENSEI_SYSTEM, message)
     return {"advice": advice, "type": "schedule"}
 
 
 @router.post("/suggest")
-async def get_activity_suggestion():
+async def get_activity_suggestion(body: dict | None = None):
+    ctx = _resolve_context(body)
     mood = store.get_today_mood()
     stats = store.get_stats()
     mood_desc = json.dumps(mood, ensure_ascii=False) if mood else "unknown mood"
     message = f"""My current mood/energy state: {mood_desc}
 My activity history stats: {json.dumps(stats, ensure_ascii=False)}
+My local timezone: {ctx["timezone"]}
+My local datetime: {ctx["now"].isoformat()}
 
 Please suggest 3 specific activities that would be most beneficial right now.
 For each suggestion, briefly explain why it suits my current state.
-Consider balance between learning, reading, exercise, creative work and rest."""
+Consider balance between learning, reading, exercise, creative work and rest.
+Only suggest activities that make sense at this local time (for example, no morning walk suggestion at midnight).
+If the user is currently in a work block, prioritize practical break suggestions (hydration, stretch, short walk, breathing)."""
     advice = await call_gemini(SENSEI_SYSTEM, message)
     return {"advice": advice, "type": "suggestion"}
 
@@ -231,18 +315,24 @@ async def chat_with_sensei(body: dict):
 
 @router.post("/create-task")
 async def create_task_from_ai(body: dict):
+    ctx = _resolve_context(body)
     dry_run = bool(body.get("dry_run", False))
     proposed_tasks = body.get("proposed_tasks")
     if proposed_tasks is None:
         message = body.get("message", "").strip()
         if not message:
             raise HTTPException(status_code=400, detail="Message is required")
-        ai_response = await call_gemini(TASK_CREATOR_SYSTEM, message)
+        contextual_message = (
+            f"Local timezone: {ctx['timezone']}\n"
+            f"Local datetime: {ctx['now'].isoformat()}\n"
+            f"User request: {message}"
+        )
+        ai_response = await call_gemini(TASK_CREATOR_SYSTEM, contextual_message)
         try:
             parsed = _extract_json_block(ai_response)
         except json.JSONDecodeError:
             raise HTTPException(status_code=422, detail="Could not parse AI task response")
-        source_tasks = parsed.get("tasks", [])
+        source_tasks = _normalize_task_dates(parsed.get("tasks", []), message, ctx)
     else:
         source_tasks = proposed_tasks
 

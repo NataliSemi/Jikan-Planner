@@ -33,6 +33,7 @@
   --col-learning: #c4a060;
   --col-reading:  #4a8060;
   --col-playing:  #8060a8;
+  --col-work:     #5d78c5;
   --col-exercise: #b04040;
   --col-rest:     #4a6890;
   --col-creative: #b07040;
@@ -512,6 +513,7 @@ html, body {
 [data-type="learning"] { border-left-color: var(--col-learning) !important; }
 [data-type="reading"]  { border-left-color: var(--col-reading)  !important; }
 [data-type="playing"]  { border-left-color: var(--col-playing)  !important; }
+[data-type="work"]     { border-left-color: var(--col-work)     !important; }
 [data-type="exercise"] { border-left-color: var(--col-exercise) !important; }
 [data-type="rest"]     { border-left-color: var(--col-rest)     !important; }
 [data-type="creative"] { border-left-color: var(--col-creative) !important; }
@@ -519,6 +521,7 @@ html, body {
 .badge-learning { color: var(--col-learning); border-color: var(--col-learning); }
 .badge-reading  { color: var(--col-reading);  border-color: var(--col-reading);  }
 .badge-playing  { color: var(--col-playing);  border-color: var(--col-playing);  }
+.badge-work     { color: var(--col-work);     border-color: var(--col-work);     }
 .badge-exercise { color: var(--col-exercise); border-color: var(--col-exercise); }
 .badge-rest     { color: var(--col-rest);     border-color: var(--col-rest);     }
 .badge-creative { color: var(--col-creative); border-color: var(--col-creative); }

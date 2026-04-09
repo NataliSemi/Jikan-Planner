@@ -7,6 +7,7 @@ class ActivityType(str, Enum):
     learning = "learning"
     reading = "reading"
     playing = "playing"
+    work = "work"
     exercise = "exercise"
     rest = "rest"
     creative = "creative"
