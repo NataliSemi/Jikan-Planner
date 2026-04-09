@@ -94,7 +94,7 @@ function renderTimeline(tasks, container) {
 
   container.innerHTML = tasks.map(t => `
     <div class="timeline-item ${t.completed ? 'completed' : ''}" data-type="${t.activity_type}">
-      <div class="tl-time">${t.scheduled_time || '—'}</div>
+      <div class="tl-time">${formatTaskTimeRange(t) || '—'}</div>
       <div class="tl-body">
         <div class="tl-title">${escHtml(t.title)}</div>
         <div class="tl-meta">
@@ -150,7 +150,7 @@ function renderAllTasks(tasks, container) {
         <div class="task-row__title">${escHtml(t.title)}</div>
         <div class="task-row__meta">
           <span class="tl-badge badge-${t.activity_type}">${typeLabel(t.activity_type)}</span>
-          <span class="task-row__date">${t.scheduled_date || ''} ${t.scheduled_time || ''} · ${t.duration_minutes}min</span>
+          <span class="task-row__date">${t.scheduled_date || ''} ${formatTaskTimeRange(t)} · ${t.duration_minutes}min</span>
           ${t.recurrence?.weekdays?.length ? `<span class="task-row__date">↻ ${t.recurrence.weekdays.join(', ')}</span>` : ''}
         </div>
         ${renderChecklist(t)}
@@ -169,19 +169,28 @@ function renderAllTasks(tasks, container) {
 async function createTask() {
   const title    = document.getElementById('task-title').value.trim();
   const type     = document.getElementById('task-type').value;
-  const duration = parseInt(document.getElementById('task-duration').value);
+  let duration = parseInt(document.getElementById('task-duration').value, 10);
   const date     = document.getElementById('task-date').value;
   const time     = document.getElementById('task-time').value;
+  const endTime  = document.getElementById('task-end-time').value;
   const notes    = document.getElementById('task-notes').value.trim();
   const checklistRaw = document.getElementById('task-checklist').value.trim();
   const recurrenceDays = [...document.querySelectorAll('.recurring-day:checked')].map(el => el.value);
   const fb       = document.getElementById('add-feedback');
 
   if (!title) { setFeedback(fb, 'タイトルを入力してください', 'err'); return; }
+  if (time && endTime) {
+    const computed = durationBetween(time, endTime);
+    if (!Number.isFinite(computed) || computed <= 0) { setFeedback(fb, '終了時刻は開始時刻より後にしてください', 'err'); return; }
+    duration = computed;
+    document.getElementById('task-duration').value = duration;
+  }
+  if (!Number.isFinite(duration) || duration <= 0) { setFeedback(fb, '時間を入力してください', 'err'); return; }
 
   const payload = { title, activity_type: type, duration_minutes: duration };
   if (date) payload.scheduled_date = date;
   if (time) payload.scheduled_time = time;
+  if (endTime) payload.end_time = endTime;
   if (notes) payload.notes = notes;
   if (checklistRaw) {
     payload.checklist = checklistRaw.split('\n').map(i => i.trim()).filter(Boolean).map(text => ({ text, completed: false }));
@@ -203,6 +212,7 @@ async function createTask() {
       document.getElementById('task-notes').value = '';
       document.getElementById('task-checklist').value = '';
       document.getElementById('task-time').value = '';
+      document.getElementById('task-end-time').value = '';
       document.querySelectorAll('.recurring-day').forEach(el => { el.checked = false; });
     } else {
       setFeedback(fb, 'エラーが発生しました', 'err');
@@ -243,6 +253,7 @@ function openEditTask(id) {
   document.getElementById('edit-task-duration').value = task.duration_minutes || 30;
   document.getElementById('edit-task-date').value = task.scheduled_date || '';
   document.getElementById('edit-task-time').value = task.scheduled_time || '';
+  document.getElementById('edit-task-end-time').value = task.end_time || '';
   document.getElementById('edit-task-notes').value = task.notes || '';
   document.getElementById('edit-task-checklist').value = checklistToLines(task.checklist || []);
   document.querySelectorAll('.edit-recurring-day').forEach(el => { el.checked = false; });
@@ -260,7 +271,15 @@ async function submitEditTask() {
   const task = taskCache.get(activeEditTaskId) || {};
   const title = document.getElementById('edit-task-title').value.trim();
   if (!title) return alert('Title is required');
-  const duration = parseInt(document.getElementById('edit-task-duration').value, 10);
+  let duration = parseInt(document.getElementById('edit-task-duration').value, 10);
+  const startTime = document.getElementById('edit-task-time').value;
+  const endTime = document.getElementById('edit-task-end-time').value;
+  if (startTime && endTime) {
+    const computed = durationBetween(startTime, endTime);
+    if (!Number.isFinite(computed) || computed <= 0) return alert('End time must be after start time');
+    duration = computed;
+    document.getElementById('edit-task-duration').value = duration;
+  }
   if (!Number.isFinite(duration) || duration <= 0) return alert('Duration must be a positive number');
 
   const recurrenceDays = [...document.querySelectorAll('.edit-recurring-day:checked')].map(el => el.value);
@@ -269,7 +288,8 @@ async function submitEditTask() {
     activity_type: document.getElementById('edit-task-type').value,
     duration_minutes: duration,
     scheduled_date: document.getElementById('edit-task-date').value || null,
-    scheduled_time: document.getElementById('edit-task-time').value || null,
+    scheduled_time: startTime || null,
+    end_time: endTime || null,
     notes: document.getElementById('edit-task-notes').value.trim() || null,
     checklist: linesToChecklist(document.getElementById('edit-task-checklist').value),
     recurrence: recurrenceDays.length ? { frequency: 'weekly', weekdays: recurrenceDays } : null,
@@ -350,7 +370,15 @@ async function fetchAI(type) {
     </div>`;
 
   try {
-    const res = await fetch(`${API}${endpoints[type]}`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+    const aiContext = {
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      local_datetime: new Date().toISOString()
+    };
+    const res = await fetch(`${API}${endpoints[type]}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(aiContext)
+    });
     const data = await res.json();
     responseEl.innerHTML = `
       <div class="sensei-message">
@@ -402,10 +430,14 @@ async function createTasksWithSensei() {
   const responseEl = document.getElementById('sensei-response');
   responseEl.innerHTML = `<div class="sensei-loading"><div class="sensei-loading__brush">筆</div><p>先生が計画を作成中 · Sensei is creating tasks...</p></div>`;
   try {
+    const aiContext = {
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      local_datetime: new Date().toISOString()
+    };
     const res = await fetch(`${API}/api/ai/create-task`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: msg, dry_run: true })
+      body: JSON.stringify({ message: msg, dry_run: true, ...aiContext })
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'Could not generate plan');
@@ -577,7 +609,7 @@ function renderStats(stats, container) {
   const maxMins = Math.max(...Object.values(mbt), 1);
   const typeColors = {
     learning: 'var(--col-learning)', reading: 'var(--col-reading)', playing: 'var(--col-playing)',
-    exercise: 'var(--col-exercise)', rest: 'var(--col-rest)', creative: 'var(--col-creative)', social: 'var(--col-social)'
+    work: 'var(--col-work)', exercise: 'var(--col-exercise)', rest: 'var(--col-rest)', creative: 'var(--col-creative)', social: 'var(--col-social)'
   };
 
   const actBars = Object.entries(mbt).map(([t, mins]) => `
@@ -620,9 +652,22 @@ function renderStats(stats, container) {
 function typeLabel(type) {
   const map = {
     learning: '学習', reading: '読書', playing: '遊び',
-    exercise: '運動', rest: '休息', creative: '創造', social: '交流'
+    work: '仕事', exercise: '運動', rest: '休息', creative: '創造', social: '交流'
   };
   return map[type] || type;
+}
+
+function durationBetween(start, end) {
+  if (!start || !end) return null;
+  const [sh, sm] = String(start).split(':').map(Number);
+  const [eh, em] = String(end).split(':').map(Number);
+  if ([sh, sm, eh, em].some(n => !Number.isFinite(n))) return null;
+  return (eh * 60 + em) - (sh * 60 + sm);
+}
+
+function formatTaskTimeRange(task) {
+  if (task?.scheduled_time && task?.end_time) return `${task.scheduled_time}-${task.end_time}`;
+  return task?.scheduled_time || '';
 }
 
 function escHtml(str) {
