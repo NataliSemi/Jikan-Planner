@@ -173,6 +173,63 @@ def _looks_future_intent(message: str) -> bool:
     return any(t in msg for t in tokens)
 
 
+def _looks_recent_plan_clone_intent(message: str) -> bool:
+    msg = (message or "").lower()
+    clone_tokens = [
+        "based on what i planned",
+        "based on my plan",
+        "same as today",
+        "same as yesterday",
+        "what i planned for today",
+        "what i planned for yesterday",
+    ]
+    return any(token in msg for token in clone_tokens)
+
+
+def _clone_recent_plan_tasks(message: str, ctx: dict) -> list[dict]:
+    msg = (message or "").lower()
+    today = date.fromisoformat(ctx["today"])
+    yesterday = (today - timedelta(days=1)).isoformat()
+    tomorrow = (today + timedelta(days=1)).isoformat()
+
+    source_dates = []
+    if "today" in msg:
+        source_dates.append(today.isoformat())
+    if "yesterday" in msg:
+        source_dates.append(yesterday)
+    if not source_dates:
+        source_dates = [today.isoformat(), yesterday]
+
+    seen = set()
+    cloned = []
+    for source_date in source_dates:
+        for task in store.get_tasks(date_filter=source_date):
+            title = (task.get("title") or "").strip()
+            activity_type = task.get("activity_type")
+            duration = task.get("duration_minutes")
+            if not title or not activity_type or not isinstance(duration, int):
+                continue
+            dedupe_key = (title.lower(), activity_type, task.get("scheduled_time"), duration)
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+
+            cloned.append({
+                "title": title,
+                "activity_type": activity_type,
+                "duration_minutes": duration,
+                "scheduled_date": tomorrow if "tomorrow" in msg else task.get("scheduled_date"),
+                "scheduled_time": task.get("scheduled_time"),
+                "end_time": task.get("end_time"),
+                "notes": task.get("notes"),
+                "checklist": task.get("checklist") or [],
+                "recurrence_weekdays": (task.get("recurrence") or {}).get("weekdays", []),
+            })
+            if len(cloned) >= 5:
+                return cloned
+    return cloned
+
+
 def _normalize_task_dates(tasks: list[dict], message: str, ctx: dict) -> list[dict]:
     if not _looks_future_intent(message):
         return tasks
@@ -407,18 +464,27 @@ async def create_task_from_ai(body: dict):
         message = body.get("message", "").strip()
         if not message:
             raise HTTPException(status_code=400, detail="Message is required")
-        contextual_message = (
-            f"Local timezone: {ctx['timezone']}\n"
-            f"Local datetime: {ctx['now'].isoformat()}\n"
-            f"User request: {message}"
-        )
-        ai_response = await call_gemini(TASK_CREATOR_SYSTEM, contextual_message)
-        try:
-            parsed = _extract_json_block(ai_response)
-        except json.JSONDecodeError:
-            logger.warning("Failed to parse create-task AI response: %s", ai_response[:500])
-            raise HTTPException(status_code=422, detail="Could not parse AI task response")
-        source_tasks = _normalize_task_dates(_coerce_tasks_payload(parsed), message, ctx)
+        if _looks_recent_plan_clone_intent(message):
+            cloned_tasks = _clone_recent_plan_tasks(message, ctx)
+            if cloned_tasks:
+                source_tasks = cloned_tasks
+            else:
+                source_tasks = []
+        else:
+            source_tasks = None
+        if source_tasks is None:
+            contextual_message = (
+                f"Local timezone: {ctx['timezone']}\n"
+                f"Local datetime: {ctx['now'].isoformat()}\n"
+                f"User request: {message}"
+            )
+            ai_response = await call_gemini(TASK_CREATOR_SYSTEM, contextual_message)
+            try:
+                parsed = _extract_json_block(ai_response)
+            except json.JSONDecodeError:
+                logger.warning("Failed to parse create-task AI response: %s", ai_response[:500])
+                raise HTTPException(status_code=422, detail="Could not parse AI task response")
+            source_tasks = _normalize_task_dates(_coerce_tasks_payload(parsed), message, ctx)
     else:
         source_tasks = _coerce_tasks_payload(proposed_tasks)
 
