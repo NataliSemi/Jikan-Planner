@@ -4,6 +4,8 @@ import os
 import json
 import asyncio
 import logging
+import ast
+import re
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from app import store
@@ -129,6 +131,18 @@ Rules:
 - Output valid JSON only.
 """
 
+TASK_AMENDER_SYSTEM = """You amend an existing task proposal based on user feedback.
+Return JSON only with this shape:
+{"tasks":[{"title":"...", "activity_type":"learning|reading|playing|work|exercise|rest|creative|social", "duration_minutes":30, "scheduled_date":"YYYY-MM-DD or null", "scheduled_time":"HH:MM or null", "end_time":"HH:MM or null", "notes":"optional", "checklist":["item 1","item 2"], "recurrence_weekdays":["monday","tuesday"]}]}
+Rules:
+- Update the provided tasks according to the user's requested changes.
+- Keep unchanged tasks unless user asks to remove/replace them.
+- Use at most 5 tasks.
+- If a field is unknown, use null for date/time and [] for arrays.
+- Resolve relative date phrases (today/tomorrow/etc.) using the provided local datetime context.
+- Output valid JSON only.
+"""
+
 
 def _resolve_context(body: dict | None = None) -> dict:
     body = body or {}
@@ -169,6 +183,63 @@ def _looks_future_intent(message: str) -> bool:
         "tonight", "this evening", "later today", "later",
     ]
     return any(t in msg for t in tokens)
+
+
+def _looks_recent_plan_clone_intent(message: str) -> bool:
+    msg = (message or "").lower()
+    clone_tokens = [
+        "based on what i planned",
+        "based on my plan",
+        "same as today",
+        "same as yesterday",
+        "what i planned for today",
+        "what i planned for yesterday",
+    ]
+    return any(token in msg for token in clone_tokens)
+
+
+def _clone_recent_plan_tasks(message: str, ctx: dict) -> list[dict]:
+    msg = (message or "").lower()
+    today = date.fromisoformat(ctx["today"])
+    yesterday = (today - timedelta(days=1)).isoformat()
+    tomorrow = (today + timedelta(days=1)).isoformat()
+
+    source_dates = []
+    if "today" in msg:
+        source_dates.append(today.isoformat())
+    if "yesterday" in msg:
+        source_dates.append(yesterday)
+    if not source_dates:
+        source_dates = [today.isoformat(), yesterday]
+
+    seen = set()
+    cloned = []
+    for source_date in source_dates:
+        for task in store.get_tasks(date_filter=source_date):
+            title = (task.get("title") or "").strip()
+            activity_type = task.get("activity_type")
+            duration = task.get("duration_minutes")
+            if not title or not activity_type or not isinstance(duration, int):
+                continue
+            dedupe_key = (title.lower(), activity_type, task.get("scheduled_time"), duration)
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+
+            cloned.append({
+                "title": title,
+                "activity_type": activity_type,
+                "duration_minutes": duration,
+                "scheduled_date": tomorrow if "tomorrow" in msg else task.get("scheduled_date"),
+                "scheduled_time": task.get("scheduled_time"),
+                "end_time": task.get("end_time"),
+                "notes": task.get("notes"),
+                "checklist": task.get("checklist") or [],
+                "recurrence_weekdays": (task.get("recurrence") or {}).get("weekdays", []),
+            })
+            if len(cloned) >= 5:
+                return cloned
+    return cloned
 
 
 def _normalize_task_dates(tasks: list[dict], message: str, ctx: dict) -> list[dict]:
@@ -216,19 +287,88 @@ def _duration_from_times(start: str | None, end: str | None) -> int | None:
 
 
 def _extract_json_block(raw_text: str) -> dict:
-    text = raw_text.strip()
-    if text.startswith("```"):
-        text = text.strip("`")
-        if "\n" in text:
-            text = text.split("\n", 1)[1]
+    text = (raw_text or "").strip()
+    if not text:
+        raise json.JSONDecodeError("Empty response", "", 0)
+
+    # 1) Best case: valid JSON body as-is
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        start = text.find("{")
-        end = text.rfind("}")
-        if start >= 0 and end > start:
-            return json.loads(text[start:end + 1])
-        raise
+        pass
+
+    # 2) Strip markdown code fences (```json ... ```)
+    fence_match = re.search(r"```(?:json)?\s*(.*?)\s*```", text, flags=re.IGNORECASE | re.DOTALL)
+    if fence_match:
+        fenced = fence_match.group(1).strip()
+        try:
+            return json.loads(fenced)
+        except json.JSONDecodeError:
+            text = fenced
+
+    # 3) Some models return a top-level array of tasks.
+    list_start = text.find("[")
+    list_end = text.rfind("]")
+    if list_start >= 0 and list_end > list_start:
+        list_candidate = text[list_start:list_end + 1].strip()
+        try:
+            return {"tasks": json.loads(list_candidate)}
+        except json.JSONDecodeError:
+            repaired = re.sub(r",\s*([}\]])", r"\1", list_candidate)
+            repaired = re.sub(r"\bNone\b", "null", repaired)
+            repaired = re.sub(r"\bTrue\b", "true", repaired)
+            repaired = re.sub(r"\bFalse\b", "false", repaired)
+            try:
+                return {"tasks": json.loads(repaired)}
+            except json.JSONDecodeError:
+                literal = ast.literal_eval(repaired)
+                return {"tasks": json.loads(json.dumps(literal))}
+
+    # 4) Try object slice between first "{" and last "}"
+    start = text.find("{")
+    end = text.rfind("}")
+    if start >= 0 and end > start:
+        candidate = text[start:end + 1].strip()
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            # 4) Repair common JSON mistakes from LLMs.
+            repaired = re.sub(r",\s*([}\]])", r"\1", candidate)  # trailing commas
+            repaired = re.sub(r"\bNone\b", "null", repaired)
+            repaired = re.sub(r"\bTrue\b", "true", repaired)
+            repaired = re.sub(r"\bFalse\b", "false", repaired)
+            try:
+                return json.loads(repaired)
+            except json.JSONDecodeError:
+                # 5) Last resort: parse Python-like dict/list output.
+                try:
+                    literal = ast.literal_eval(candidate)
+                except (ValueError, SyntaxError):
+                    literal = ast.literal_eval(repaired)
+                return json.loads(json.dumps(literal))
+
+    raise json.JSONDecodeError("No JSON object found", text, 0)
+
+
+def _coerce_tasks_payload(parsed_payload) -> list[dict]:
+    if isinstance(parsed_payload, list):
+        return [item for item in parsed_payload if isinstance(item, dict)]
+
+    if not isinstance(parsed_payload, dict):
+        return []
+
+    if isinstance(parsed_payload.get("tasks"), list):
+        return [item for item in parsed_payload.get("tasks", []) if isinstance(item, dict)]
+
+    task = parsed_payload.get("task")
+    if isinstance(task, dict):
+        return [task]
+
+    items = parsed_payload.get("items")
+    if isinstance(items, list):
+        return [item for item in items if isinstance(item, dict)]
+
+    return []
 
 
 def _parse_checklist_text(raw_value) -> tuple[str, bool]:
@@ -331,24 +471,50 @@ async def chat_with_sensei(body: dict):
 async def create_task_from_ai(body: dict):
     ctx = _resolve_context(body)
     dry_run = bool(body.get("dry_run", False))
+    message = body.get("message", "").strip()
     proposed_tasks = body.get("proposed_tasks")
     if proposed_tasks is None:
-        message = body.get("message", "").strip()
         if not message:
             raise HTTPException(status_code=400, detail="Message is required")
-        contextual_message = (
-            f"Local timezone: {ctx['timezone']}\n"
-            f"Local datetime: {ctx['now'].isoformat()}\n"
-            f"User request: {message}"
-        )
-        ai_response = await call_gemini(TASK_CREATOR_SYSTEM, contextual_message)
-        try:
-            parsed = _extract_json_block(ai_response)
-        except json.JSONDecodeError:
-            raise HTTPException(status_code=422, detail="Could not parse AI task response")
-        source_tasks = _normalize_task_dates(parsed.get("tasks", []), message, ctx)
+        if _looks_recent_plan_clone_intent(message):
+            cloned_tasks = _clone_recent_plan_tasks(message, ctx)
+            if cloned_tasks:
+                source_tasks = cloned_tasks
+            else:
+                source_tasks = []
+        else:
+            source_tasks = None
+        if source_tasks is None:
+            contextual_message = (
+                f"Local timezone: {ctx['timezone']}\n"
+                f"Local datetime: {ctx['now'].isoformat()}\n"
+                f"User request: {message}"
+            )
+            ai_response = await call_gemini(TASK_CREATOR_SYSTEM, contextual_message)
+            try:
+                parsed = _extract_json_block(ai_response)
+            except json.JSONDecodeError:
+                logger.warning("Failed to parse create-task AI response: %s", ai_response[:500])
+                raise HTTPException(status_code=422, detail="Could not parse AI task response")
+            source_tasks = _normalize_task_dates(_coerce_tasks_payload(parsed), message, ctx)
     else:
-        source_tasks = proposed_tasks
+        if message:
+            existing_tasks = _coerce_tasks_payload(proposed_tasks)
+            contextual_message = (
+                f"Local timezone: {ctx['timezone']}\n"
+                f"Local datetime: {ctx['now'].isoformat()}\n"
+                f"Current proposed tasks: {json.dumps(existing_tasks, ensure_ascii=False)}\n"
+                f"User requested changes: {message}"
+            )
+            ai_response = await call_gemini(TASK_AMENDER_SYSTEM, contextual_message)
+            try:
+                parsed = _extract_json_block(ai_response)
+            except json.JSONDecodeError:
+                logger.warning("Failed to parse amended task response: %s", ai_response[:500])
+                raise HTTPException(status_code=422, detail="Could not parse amended AI task response")
+            source_tasks = _normalize_task_dates(_coerce_tasks_payload(parsed), message, ctx)
+        else:
+            source_tasks = _coerce_tasks_payload(proposed_tasks)
 
     normalized_tasks = []
     for item in source_tasks:
