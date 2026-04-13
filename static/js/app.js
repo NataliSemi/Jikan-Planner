@@ -519,12 +519,23 @@ function normalizeChecklist(checklist) {
     if (item && typeof item === 'object' && typeof item.text === 'object') {
       return {
         text: String(item.text.text || ''),
-        completed: Boolean(item.completed || item.text.completed)
+        completed: coerceBool(item.completed ?? item.text.completed)
       };
     }
     const parsed = parseChecklistText(item?.text || '');
-    return { text: parsed.text, completed: Boolean(item?.completed || parsed.completed) };
+    return { text: parsed.text, completed: coerceBool(item?.completed ?? parsed.completed) };
   }).filter(i => i.text);
+}
+
+function coerceBool(value) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'n', 'off', ''].includes(normalized)) return false;
+  }
+  return Boolean(value);
 }
 
 function parseChecklistText(rawText) {
@@ -540,7 +551,7 @@ function parseChecklistText(rawText) {
       if (parsed && typeof parsed === 'object') {
         return {
           text: String(parsed.text || '').trim(),
-          completed: Boolean(parsed.completed)
+          completed: coerceBool(parsed.completed)
         };
       }
     } catch (e) { /* fall through */ }

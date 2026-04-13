@@ -399,11 +399,25 @@ def _parse_checklist_text(raw_value) -> tuple[str, bool]:
             obj = json.loads(text.replace("'", '"').replace(" True", " true").replace(" False", " false"))
             if isinstance(obj, dict):
                 parsed_text = str(obj.get("text", "")).strip()
-                parsed_completed = bool(obj.get("completed", False))
+                parsed_completed = _coerce_bool(obj.get("completed", False))
                 return parsed_text, parsed_completed
         except json.JSONDecodeError:
             pass
     return text, False
+
+
+def _coerce_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "y", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "n", "off", ""}:
+            return False
+    return bool(value)
 
 
 @router.post("/mood")
@@ -551,7 +565,7 @@ async def create_task_from_ai(body: dict):
         for entry in item.get("checklist", []):
             if isinstance(entry, dict):
                 text, fallback_completed = _parse_checklist_text(entry.get("text", ""))
-                completed = bool(entry.get("completed", False))
+                completed = _coerce_bool(entry.get("completed", False))
                 if not completed and fallback_completed:
                     completed = fallback_completed
             else:
