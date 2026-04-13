@@ -7,6 +7,7 @@ const API = '';  // same-origin
 // ── State ──────────────────────────────────────────────────────
 const mood = { energy: null, focus: null, mood: null };
 let pendingTaskProposal = null;
+let isAmendingTaskProposal = false;
 const taskCache = new Map();
 let activeEditTaskId = null;
 const reminderState = {
@@ -434,14 +435,19 @@ async function createTasksWithSensei() {
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       local_datetime: new Date().toISOString()
     };
+    const payload = { message: msg, dry_run: true, ...aiContext };
+    if (pendingTaskProposal?.length && isAmendingTaskProposal) {
+      payload.proposed_tasks = pendingTaskProposal;
+    }
     const res = await fetch(`${API}/api/ai/create-task`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: msg, dry_run: true, ...aiContext })
+      body: JSON.stringify(payload)
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'Could not generate plan');
     pendingTaskProposal = data.proposal || [];
+    isAmendingTaskProposal = false;
     responseEl.innerHTML = `
       <div class="sensei-message">
         <div class="sensei-message__header">◆ 提案プラン · Proposed Plan</div>
@@ -455,8 +461,8 @@ async function createTasksWithSensei() {
     const reviseBtn = document.getElementById('revise-task-plan-btn');
     if (confirmBtn) confirmBtn.addEventListener('click', confirmTaskProposal);
     if (reviseBtn) reviseBtn.addEventListener('click', () => {
-      pendingTaskProposal = null;
-      responseEl.innerHTML = `<div class="sensei-message">了解です。変更したい点をチャットで教えてください · Got it—tell me what to change, and I’ll propose a new plan.</div>`;
+      isAmendingTaskProposal = true;
+      responseEl.innerHTML = `<div class="sensei-message">了解です。変更点を入力してもう一度「Task」を押してください。前回の提案を修正します · Got it—type what to change and press “Task” again to amend the current proposal.</div>`;
     });
   } catch (e) {
     responseEl.innerHTML = `<div class="sensei-message" style="color:var(--cinnabar)">作成失敗 · ${escHtml(String(e.message || e))}</div>`;
@@ -482,6 +488,7 @@ async function confirmTaskProposal() {
         ${data.created.map(t => `・${escHtml(t.title)}`).join('<br>')}
       </div>`;
     pendingTaskProposal = null;
+    isAmendingTaskProposal = false;
     document.getElementById('chat-input').value = '';
     loadTodayTasks();
   } catch (e) {
