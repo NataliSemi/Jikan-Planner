@@ -131,6 +131,18 @@ Rules:
 - Output valid JSON only.
 """
 
+TASK_AMENDER_SYSTEM = """You amend an existing task proposal based on user feedback.
+Return JSON only with this shape:
+{"tasks":[{"title":"...", "activity_type":"learning|reading|playing|work|exercise|rest|creative|social", "duration_minutes":30, "scheduled_date":"YYYY-MM-DD or null", "scheduled_time":"HH:MM or null", "end_time":"HH:MM or null", "notes":"optional", "checklist":["item 1","item 2"], "recurrence_weekdays":["monday","tuesday"]}]}
+Rules:
+- Update the provided tasks according to the user's requested changes.
+- Keep unchanged tasks unless user asks to remove/replace them.
+- Use at most 5 tasks.
+- If a field is unknown, use null for date/time and [] for arrays.
+- Resolve relative date phrases (today/tomorrow/etc.) using the provided local datetime context.
+- Output valid JSON only.
+"""
+
 
 def _resolve_context(body: dict | None = None) -> dict:
     body = body or {}
@@ -459,9 +471,9 @@ async def chat_with_sensei(body: dict):
 async def create_task_from_ai(body: dict):
     ctx = _resolve_context(body)
     dry_run = bool(body.get("dry_run", False))
+    message = body.get("message", "").strip()
     proposed_tasks = body.get("proposed_tasks")
     if proposed_tasks is None:
-        message = body.get("message", "").strip()
         if not message:
             raise HTTPException(status_code=400, detail="Message is required")
         if _looks_recent_plan_clone_intent(message):
@@ -486,7 +498,23 @@ async def create_task_from_ai(body: dict):
                 raise HTTPException(status_code=422, detail="Could not parse AI task response")
             source_tasks = _normalize_task_dates(_coerce_tasks_payload(parsed), message, ctx)
     else:
-        source_tasks = _coerce_tasks_payload(proposed_tasks)
+        if message:
+            existing_tasks = _coerce_tasks_payload(proposed_tasks)
+            contextual_message = (
+                f"Local timezone: {ctx['timezone']}\n"
+                f"Local datetime: {ctx['now'].isoformat()}\n"
+                f"Current proposed tasks: {json.dumps(existing_tasks, ensure_ascii=False)}\n"
+                f"User requested changes: {message}"
+            )
+            ai_response = await call_gemini(TASK_AMENDER_SYSTEM, contextual_message)
+            try:
+                parsed = _extract_json_block(ai_response)
+            except json.JSONDecodeError:
+                logger.warning("Failed to parse amended task response: %s", ai_response[:500])
+                raise HTTPException(status_code=422, detail="Could not parse amended AI task response")
+            source_tasks = _normalize_task_dates(_coerce_tasks_payload(parsed), message, ctx)
+        else:
+            source_tasks = _coerce_tasks_payload(proposed_tasks)
 
     normalized_tasks = []
     for item in source_tasks:
