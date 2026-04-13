@@ -189,11 +189,19 @@ def _looks_recent_plan_clone_intent(message: str) -> bool:
     msg = (message or "").lower()
     clone_tokens = [
         "based on what i planned",
+        "based on what i did",
+        "based on what i have done",
+        "based on what i completed",
         "based on my plan",
+        "based on my activity",
         "same as today",
         "same as yesterday",
         "what i planned for today",
         "what i planned for yesterday",
+        "what i did today",
+        "what i did yesterday",
+        "what i completed today",
+        "what i completed yesterday",
     ]
     return any(token in msg for token in clone_tokens)
 
@@ -214,8 +222,19 @@ def _clone_recent_plan_tasks(message: str, ctx: dict) -> list[dict]:
 
     seen = set()
     cloned = []
+    wants_completed_only = any(token in msg for token in [
+        "what i did",
+        "have done",
+        "completed",
+        "finished",
+    ])
     for source_date in source_dates:
-        for task in store.get_tasks(date_filter=source_date):
+        source_tasks = store.get_tasks(date_filter=source_date)
+        if wants_completed_only:
+            completed_only = [t for t in source_tasks if bool(t.get("completed"))]
+            if completed_only:
+                source_tasks = completed_only
+        for task in source_tasks:
             title = (task.get("title") or "").strip()
             activity_type = task.get("activity_type")
             duration = task.get("duration_minutes")
