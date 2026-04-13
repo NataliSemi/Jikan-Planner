@@ -237,7 +237,25 @@ def _extract_json_block(raw_text: str) -> dict:
         except json.JSONDecodeError:
             text = fenced
 
-    # 3) Try object slice between first "{" and last "}"
+    # 3) Some models return a top-level array of tasks.
+    list_start = text.find("[")
+    list_end = text.rfind("]")
+    if list_start >= 0 and list_end > list_start:
+        list_candidate = text[list_start:list_end + 1].strip()
+        try:
+            return {"tasks": json.loads(list_candidate)}
+        except json.JSONDecodeError:
+            repaired = re.sub(r",\s*([}\]])", r"\1", list_candidate)
+            repaired = re.sub(r"\bNone\b", "null", repaired)
+            repaired = re.sub(r"\bTrue\b", "true", repaired)
+            repaired = re.sub(r"\bFalse\b", "false", repaired)
+            try:
+                return {"tasks": json.loads(repaired)}
+            except json.JSONDecodeError:
+                literal = ast.literal_eval(repaired)
+                return {"tasks": json.loads(json.dumps(literal))}
+
+    # 4) Try object slice between first "{" and last "}"
     start = text.find("{")
     end = text.rfind("}")
     if start >= 0 and end > start:
@@ -261,6 +279,27 @@ def _extract_json_block(raw_text: str) -> dict:
                 return json.loads(json.dumps(literal))
 
     raise json.JSONDecodeError("No JSON object found", text, 0)
+
+
+def _coerce_tasks_payload(parsed_payload) -> list[dict]:
+    if isinstance(parsed_payload, list):
+        return [item for item in parsed_payload if isinstance(item, dict)]
+
+    if not isinstance(parsed_payload, dict):
+        return []
+
+    if isinstance(parsed_payload.get("tasks"), list):
+        return [item for item in parsed_payload.get("tasks", []) if isinstance(item, dict)]
+
+    task = parsed_payload.get("task")
+    if isinstance(task, dict):
+        return [task]
+
+    items = parsed_payload.get("items")
+    if isinstance(items, list):
+        return [item for item in items if isinstance(item, dict)]
+
+    return []
 
 
 def _parse_checklist_text(raw_value) -> tuple[str, bool]:
@@ -377,10 +416,11 @@ async def create_task_from_ai(body: dict):
         try:
             parsed = _extract_json_block(ai_response)
         except json.JSONDecodeError:
+            logger.warning("Failed to parse create-task AI response: %s", ai_response[:500])
             raise HTTPException(status_code=422, detail="Could not parse AI task response")
-        source_tasks = _normalize_task_dates(parsed.get("tasks", []), message, ctx)
+        source_tasks = _normalize_task_dates(_coerce_tasks_payload(parsed), message, ctx)
     else:
-        source_tasks = proposed_tasks
+        source_tasks = _coerce_tasks_payload(proposed_tasks)
 
     normalized_tasks = []
     for item in source_tasks:
