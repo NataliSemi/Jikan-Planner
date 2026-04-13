@@ -4,6 +4,8 @@ import os
 import json
 import asyncio
 import logging
+import ast
+import re
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from app import store
@@ -216,19 +218,49 @@ def _duration_from_times(start: str | None, end: str | None) -> int | None:
 
 
 def _extract_json_block(raw_text: str) -> dict:
-    text = raw_text.strip()
-    if text.startswith("```"):
-        text = text.strip("`")
-        if "\n" in text:
-            text = text.split("\n", 1)[1]
+    text = (raw_text or "").strip()
+    if not text:
+        raise json.JSONDecodeError("Empty response", "", 0)
+
+    # 1) Best case: valid JSON body as-is
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        start = text.find("{")
-        end = text.rfind("}")
-        if start >= 0 and end > start:
-            return json.loads(text[start:end + 1])
-        raise
+        pass
+
+    # 2) Strip markdown code fences (```json ... ```)
+    fence_match = re.search(r"```(?:json)?\s*(.*?)\s*```", text, flags=re.IGNORECASE | re.DOTALL)
+    if fence_match:
+        fenced = fence_match.group(1).strip()
+        try:
+            return json.loads(fenced)
+        except json.JSONDecodeError:
+            text = fenced
+
+    # 3) Try object slice between first "{" and last "}"
+    start = text.find("{")
+    end = text.rfind("}")
+    if start >= 0 and end > start:
+        candidate = text[start:end + 1].strip()
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            # 4) Repair common JSON mistakes from LLMs.
+            repaired = re.sub(r",\s*([}\]])", r"\1", candidate)  # trailing commas
+            repaired = re.sub(r"\bNone\b", "null", repaired)
+            repaired = re.sub(r"\bTrue\b", "true", repaired)
+            repaired = re.sub(r"\bFalse\b", "false", repaired)
+            try:
+                return json.loads(repaired)
+            except json.JSONDecodeError:
+                # 5) Last resort: parse Python-like dict/list output.
+                try:
+                    literal = ast.literal_eval(candidate)
+                except (ValueError, SyntaxError):
+                    literal = ast.literal_eval(repaired)
+                return json.loads(json.dumps(literal))
+
+    raise json.JSONDecodeError("No JSON object found", text, 0)
 
 
 def _parse_checklist_text(raw_value) -> tuple[str, bool]:
