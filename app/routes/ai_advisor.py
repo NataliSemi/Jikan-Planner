@@ -115,6 +115,7 @@ async def call_gemini(system_prompt: str, user_message: str) -> str:
 SENSEI_SYSTEM = """You are 時間先生 (Jikan Sensei), a wise and calm Japanese time-management advisor.
 You speak with gentle authority, using occasional Japanese phrases and references to Japanese wisdom,
 wabi-sabi philosophy, and the concept of ikigai. Keep responses concise, warm, and practical.
+When the user shares a current goal, make recommendations that clearly support that goal. Still behave like a balanced Japanese sensei: occasionally recommend short meditation, stretching, breathing, hydration, or mindful rest when they would protect focus, energy, or long-term consistency.
 Always respond in English but sprinkle Japanese words naturally.
 Format your response in plain text, no markdown."""
 
@@ -146,6 +147,7 @@ Rules:
 
 def _resolve_context(body: dict | None = None) -> dict:
     body = body or {}
+    goal = str(body.get("goal") or "").strip()
     tz_name = (body.get("timezone") or "UTC").strip()
     try:
         tz = ZoneInfo(tz_name)
@@ -173,6 +175,7 @@ def _resolve_context(body: dict | None = None) -> dict:
         "now": now,
         "today": now.date().isoformat(),
         "hour": now.hour,
+        "goal": goal[:500],
     }
 
 
@@ -445,10 +448,12 @@ Today's mood/energy: {json.dumps(mood, ensure_ascii=False) if mood else 'Not che
 Overall stats: {json.dumps(stats, ensure_ascii=False)}
 Local timezone: {ctx["timezone"]}
 Local datetime: {ctx["now"].isoformat()}
+User's current goal: {ctx["goal"] or "No goal set"}
 """
     message = f"""Based on this context, please provide a gentle daily schedule recommendation.
 Suggest an ideal order and timing for the tasks, and if no tasks exist, suggest a balanced day structure
 covering learning, reading, exercise and rest. Keep it to 5-7 suggestions.
+Prioritize the user's current goal when one is set, but include brief meditation, stretching, breathing, hydration, or mindful rest when it would help sustain progress.
 IMPORTANT: Your timing suggestions must fit the local time window. If local time is late evening/night,
 avoid suggesting morning activities as if they can happen now.
 If any task is a work block (e.g. 09:00-17:00), treat it as a fixed anchor and plan around it with realistic short breaks.\n\nContext:\n{context}"""
@@ -466,10 +471,12 @@ async def get_activity_suggestion(body: dict | None = None):
 My activity history stats: {json.dumps(stats, ensure_ascii=False)}
 My local timezone: {ctx["timezone"]}
 My local datetime: {ctx["now"].isoformat()}
+My current goal: {ctx["goal"] or "No goal set"}
 
 Please suggest 3 specific activities that would be most beneficial right now.
 For each suggestion, briefly explain why it suits my current state.
-Consider balance between learning, reading, exercise, creative work and rest.
+Prioritize activities that support my current goal when one is set.
+Consider balance between learning, reading, exercise, creative work and rest. Sometimes include meditation, stretching, breathing, hydration, or mindful rest if that is what a wise sensei would prescribe.
 Only suggest activities that make sense at this local time (for example, no morning walk suggestion at midnight).
 If the user is currently in a work block, prioritize practical break suggestions (hydration, stretch, short walk, breathing)."""
     advice = await call_gemini(SENSEI_SYSTEM, message)
@@ -493,10 +500,12 @@ Keep it to 3-4 sentences. Be like a wise Japanese mentor — firm but kind."""
 
 @router.post("/chat")
 async def chat_with_sensei(body: dict):
+    ctx = _resolve_context(body)
     message = body.get("message", "")
     if not message:
         raise HTTPException(status_code=400, detail="Message is required")
-    advice = await call_gemini(SENSEI_SYSTEM, message)
+    contextual_message = f"User's current goal: {ctx['goal'] or 'No goal set'}\n\nUser message: {message}"
+    advice = await call_gemini(SENSEI_SYSTEM, contextual_message)
     return {"advice": advice, "type": "chat"}
 
 
