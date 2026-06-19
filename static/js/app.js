@@ -405,12 +405,26 @@ async function fetchAI(type) {
 
   try {
     const aiContext = buildAIContext();
-    const res = await fetch(`${API}${endpoints[type]}`, {
+    let requestUrl = `${API}${endpoints[type]}`;
+    let payload = aiContext;
+
+    if (type === 'schedule' && pendingTaskProposal?.length && isAmendingTaskProposal) {
+      const amendment = document.getElementById('chat-input')?.value.trim() || '';
+      if (!amendment) {
+        responseEl.innerHTML = `<div class="sensei-message">変更点を入力してから「Schedule Advice」を押してください · Type the changes you prefer, then press “Schedule Advice” again.</div>`;
+        return;
+      }
+      requestUrl = `${API}/api/ai/create-task`;
+      payload = { message: amendment, proposed_tasks: pendingTaskProposal, dry_run: true, ...aiContext };
+    }
+
+    const res = await fetch(requestUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(aiContext)
+      body: JSON.stringify(payload)
     });
     const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Sensei request failed');
     if (type === 'schedule' && Array.isArray(data.proposal)) {
       pendingTaskProposal = data.proposal || [];
       isAmendingTaskProposal = false;
@@ -464,33 +478,41 @@ async function chatWithSensei() {
   }
 }
 
-async function createTasksWithSensei() {
-  const input = document.getElementById('chat-input');
-  const msg = input.value.trim();
-  if (!msg) return;
-  zenSound('sensei');
+
+function renderTaskProposal(header, tasks, intro = 'Please review this plan. Is this what you prefer?') {
+  const planHtml = tasks.length ? tasks.map(t => {
+    const checklist = normalizeChecklist(t.checklist || []);
+    return `
+      <div style="margin:12px 0;padding:10px;border:1px solid var(--border);border-radius:10px;">
+        <strong>${escHtml(t.title)}</strong>
+        <div style="font-size:12px;color:var(--ink-light);margin-top:4px;">
+          ${escHtml(typeLabel(t.activity_type))} · ${escHtml(String(t.duration_minutes))} min${t.scheduled_time ? ` · ${escHtml(formatTaskTimeRange(t))}` : ''}
+        </div>
+        ${checklist.length ? `<ul style="margin:8px 0 0 18px;padding:0;">${checklist.map(item => `<li>☐ ${escHtml(item.text)}</li>`).join('')}</ul>` : ''}
+      </div>`;
+  }).join('') : 'No valid tasks were generated.';
+
+  return `
+    <div class="sensei-message">
+      <div class="sensei-message__header">${header}</div>
+      <p style="margin-bottom:10px;">${escHtml(intro)}</p>
+      ${planHtml}
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn-ink btn-ink--sm" id="confirm-task-plan-btn">同意して作成 · Agree & Create</button>
+        <button class="btn-ink btn-ink--sm" id="revise-task-plan-btn">変更したい · Make Changes</button>
+      </div>
+    </div>`;
+}
+
+function bindTaskProposalButtons() {
   const responseEl = document.getElementById('sensei-response');
-  responseEl.innerHTML = `<div class="sensei-loading"><div class="sensei-loading__brush">筆</div><p>先生が計画を作成中 · Sensei is creating tasks...</p></div>`;
-  try {
-    const aiContext = buildAIContext();
-    const payload = { message: msg, dry_run: true, ...aiContext };
-    if (pendingTaskProposal?.length && isAmendingTaskProposal) {
-      payload.proposed_tasks = pendingTaskProposal;
-    }
-    const res = await fetch(`${API}/api/ai/create-task`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Could not generate plan');
-    pendingTaskProposal = data.proposal || [];
-    isAmendingTaskProposal = false;
-    responseEl.innerHTML = renderTaskProposal('◆ 提案プラン · Proposed Plan', pendingTaskProposal);
-    bindTaskProposalButtons();
-  } catch (e) {
-    responseEl.innerHTML = `<div class="sensei-message" style="color:var(--cinnabar)">作成失敗 · ${escHtml(String(e.message || e))}</div>`;
-  }
+  const confirmBtn = document.getElementById('confirm-task-plan-btn');
+  const reviseBtn = document.getElementById('revise-task-plan-btn');
+  if (confirmBtn) confirmBtn.addEventListener('click', confirmTaskProposal);
+  if (reviseBtn) reviseBtn.addEventListener('click', () => {
+    isAmendingTaskProposal = true;
+    responseEl.innerHTML = `<div class="sensei-message">了解です。変更点を入力してもう一度「Schedule Advice」を押してください。前回の提案を修正します · Got it—type what to change and press “Schedule Advice” again to amend the current proposal.</div>`;
+  });
 }
 
 
@@ -668,10 +690,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const goalInput = document.getElementById('sensei-goal-input');
   if (goalInput) {
     goalInput.addEventListener('keydown', e => { if (e.key === 'Enter') saveSenseiGoal(); });
-  }
-  const createBtn = document.getElementById('sensei-create-btn');
-  if (createBtn) {
-    createBtn.addEventListener('click', createTasksWithSensei);
   }
 });
 
