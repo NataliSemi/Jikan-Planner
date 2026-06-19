@@ -132,6 +132,20 @@ Rules:
 - Output valid JSON only.
 """
 
+SCHEDULE_TASK_SYSTEM = """You are 時間先生 (Jikan Sensei), a wise Japanese time-management advisor who turns schedule advice into actionable planner tasks.
+Return JSON only with this shape:
+{"tasks":[{"title":"...", "activity_type":"learning|reading|playing|work|exercise|rest|creative|social", "duration_minutes":30, "scheduled_date":"YYYY-MM-DD", "scheduled_time":"HH:MM or null", "end_time":"HH:MM or null", "notes":"optional", "checklist":["item 1","item 2"], "recurrence_weekdays":[]}]}
+Rules:
+- Create 3 to 5 tasks for TODAY only, using the provided local date.
+- Each task must include a practical checklist with 2 to 4 short action items.
+- Prefer tasks that support the user's current goal, while protecting balance with short rest, hydration, stretching, or breathing when useful.
+- Respect existing fixed work blocks and existing tasks; schedule around them rather than duplicating them.
+- If local time is late, only suggest tasks that can still realistically happen today.
+- Use scheduled_date equal to the provided today date for every task.
+- Use [] for recurrence_weekdays.
+- Output valid JSON only.
+"""
+
 TASK_AMENDER_SYSTEM = """You amend an existing task proposal based on user feedback.
 Return JSON only with this shape:
 {"tasks":[{"title":"...", "activity_type":"learning|reading|playing|work|exercise|rest|creative|social", "duration_minutes":30, "scheduled_date":"YYYY-MM-DD or null", "scheduled_time":"HH:MM or null", "end_time":"HH:MM or null", "notes":"optional", "checklist":["item 1","item 2"], "recurrence_weekdays":["monday","tuesday"]}]}
@@ -423,6 +437,48 @@ def _coerce_bool(value) -> bool:
     return bool(value)
 
 
+def _normalize_ai_tasks(source_tasks: list[dict]) -> list[dict]:
+    normalized_tasks = []
+    for item in source_tasks:
+        title = (item.get("title") or "").strip()
+        activity_type = item.get("activity_type")
+        duration = item.get("duration_minutes")
+        start_time = item.get("scheduled_time")
+        end_time = item.get("end_time")
+        if not isinstance(duration, int):
+            duration = _duration_from_times(start_time, end_time)
+        if not title or not activity_type or not isinstance(duration, int):
+            continue
+
+        checklist = []
+        for entry in item.get("checklist", []):
+            if isinstance(entry, dict):
+                text, fallback_completed = _parse_checklist_text(entry.get("text", ""))
+                completed = _coerce_bool(entry.get("completed", False))
+                if not completed and fallback_completed:
+                    completed = fallback_completed
+            else:
+                text, completed = _parse_checklist_text(entry)
+            if text:
+                checklist.append({"text": text, "completed": completed})
+        weekdays = [str(day).lower() for day in item.get("recurrence_weekdays", []) if str(day).strip()]
+        recurrence = {"frequency": "weekly", "weekdays": weekdays} if weekdays else None
+
+        normalized_tasks.append({
+            "title": title,
+            "activity_type": activity_type,
+            "duration_minutes": duration,
+            "scheduled_date": item.get("scheduled_date"),
+            "scheduled_time": start_time,
+            "end_time": end_time,
+            "notes": item.get("notes"),
+            "checklist": checklist,
+            "recurrence": recurrence,
+            "completion_log": [],
+        })
+    return normalized_tasks
+
+
 @router.post("/mood")
 async def save_mood(mood: MoodCheckIn):
     return store.save_mood(mood.model_dump())
@@ -443,22 +499,39 @@ async def get_schedule_recommendation(body: dict | None = None):
     mood = store.get_today_mood()
     stats = store.get_stats()
     context = f"""
-Today's tasks: {json.dumps(tasks, ensure_ascii=False)}
+Today's date: {ctx["today"]}
+Today's existing tasks: {json.dumps(tasks, ensure_ascii=False)}
 Today's mood/energy: {json.dumps(mood, ensure_ascii=False) if mood else 'Not checked in yet'}
 Overall stats: {json.dumps(stats, ensure_ascii=False)}
 Local timezone: {ctx["timezone"]}
 Local datetime: {ctx["now"].isoformat()}
 User's current goal: {ctx["goal"] or "No goal set"}
 """
-    message = f"""Based on this context, please provide a gentle daily schedule recommendation.
-Suggest an ideal order and timing for the tasks, and if no tasks exist, suggest a balanced day structure
-covering learning, reading, exercise and rest. Keep it to 5-7 suggestions.
-Prioritize the user's current goal when one is set, but include brief meditation, stretching, breathing, hydration, or mindful rest when it would help sustain progress.
-IMPORTANT: Your timing suggestions must fit the local time window. If local time is late evening/night,
-avoid suggesting morning activities as if they can happen now.
-If any task is a work block (e.g. 09:00-17:00), treat it as a fixed anchor and plan around it with realistic short breaks.\n\nContext:\n{context}"""
-    advice = await call_gemini(SENSEI_SYSTEM, message)
-    return {"advice": advice, "type": "schedule"}
+    ai_response = await call_gemini(SCHEDULE_TASK_SYSTEM, context)
+    try:
+        parsed = _extract_json_block(ai_response)
+    except (json.JSONDecodeError, ValueError, SyntaxError):
+        logger.warning("Failed to parse schedule task response: %s", ai_response[:500])
+        return {
+            "advice": ai_response,
+            "proposal": [],
+            "count": 0,
+            "type": "schedule-proposal",
+        }
+
+    proposal = []
+    for task in _coerce_tasks_payload(parsed):
+        task["scheduled_date"] = ctx["today"]
+        task["recurrence_weekdays"] = []
+        proposal.append(task)
+
+    normalized = _normalize_ai_tasks(proposal)
+    return {
+        "advice": "Sensei prepared today’s checklist plan. Please review: is this what you prefer?",
+        "proposal": normalized,
+        "count": len(normalized),
+        "type": "schedule-proposal",
+    }
 
 
 @router.post("/suggest")
@@ -558,44 +631,7 @@ async def create_task_from_ai(body: dict):
         else:
             source_tasks = _coerce_tasks_payload(proposed_tasks)
 
-    normalized_tasks = []
-    for item in source_tasks:
-        title = (item.get("title") or "").strip()
-        activity_type = item.get("activity_type")
-        duration = item.get("duration_minutes")
-        start_time = item.get("scheduled_time")
-        end_time = item.get("end_time")
-        if not isinstance(duration, int):
-            duration = _duration_from_times(start_time, end_time)
-        if not title or not activity_type or not isinstance(duration, int):
-            continue
-
-        checklist = []
-        for entry in item.get("checklist", []):
-            if isinstance(entry, dict):
-                text, fallback_completed = _parse_checklist_text(entry.get("text", ""))
-                completed = _coerce_bool(entry.get("completed", False))
-                if not completed and fallback_completed:
-                    completed = fallback_completed
-            else:
-                text, completed = _parse_checklist_text(entry)
-            if text:
-                checklist.append({"text": text, "completed": completed})
-        weekdays = [str(day).lower() for day in item.get("recurrence_weekdays", []) if str(day).strip()]
-        recurrence = {"frequency": "weekly", "weekdays": weekdays} if weekdays else None
-
-        normalized_tasks.append({
-            "title": title,
-            "activity_type": activity_type,
-            "duration_minutes": duration,
-            "scheduled_date": item.get("scheduled_date"),
-            "scheduled_time": start_time,
-            "end_time": end_time,
-            "notes": item.get("notes"),
-            "checklist": checklist,
-            "recurrence": recurrence,
-            "completion_log": [],
-        })
+    normalized_tasks = _normalize_ai_tasks(source_tasks)
 
     if dry_run:
         return {"proposal": normalized_tasks, "count": len(normalized_tasks), "type": "task-proposal"}
