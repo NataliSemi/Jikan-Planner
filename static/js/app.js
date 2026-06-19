@@ -515,6 +515,43 @@ function bindTaskProposalButtons() {
   });
 }
 
+
+function renderTaskProposal(header, tasks, intro = 'Please review this plan. Is this what you prefer?') {
+  const planHtml = tasks.length ? tasks.map(t => {
+    const checklist = normalizeChecklist(t.checklist || []);
+    return `
+      <div style="margin:12px 0;padding:10px;border:1px solid var(--border);border-radius:10px;">
+        <strong>${escHtml(t.title)}</strong>
+        <div style="font-size:12px;color:var(--ink-light);margin-top:4px;">
+          ${escHtml(typeLabel(t.activity_type))} · ${escHtml(String(t.duration_minutes))} min${t.scheduled_time ? ` · ${escHtml(formatTaskTimeRange(t))}` : ''}
+        </div>
+        ${checklist.length ? `<ul style="margin:8px 0 0 18px;padding:0;">${checklist.map(item => `<li>☐ ${escHtml(item.text)}</li>`).join('')}</ul>` : ''}
+      </div>`;
+  }).join('') : 'No valid tasks were generated.';
+
+  return `
+    <div class="sensei-message">
+      <div class="sensei-message__header">${header}</div>
+      <p style="margin-bottom:10px;">${escHtml(intro)}</p>
+      ${planHtml}
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn-ink btn-ink--sm" id="confirm-task-plan-btn">同意して作成 · Agree & Create</button>
+        <button class="btn-ink btn-ink--sm" id="revise-task-plan-btn">変更したい · Make Changes</button>
+      </div>
+    </div>`;
+}
+
+function bindTaskProposalButtons() {
+  const responseEl = document.getElementById('sensei-response');
+  const confirmBtn = document.getElementById('confirm-task-plan-btn');
+  const reviseBtn = document.getElementById('revise-task-plan-btn');
+  if (confirmBtn) confirmBtn.addEventListener('click', confirmTaskProposal);
+  if (reviseBtn) reviseBtn.addEventListener('click', () => {
+    isAmendingTaskProposal = true;
+    responseEl.innerHTML = `<div class="sensei-message">了解です。変更点を入力してもう一度「提案 · Plan Tasks」を押してください。前回の提案を修正します · Got it—type what to change and press “Plan Tasks” again to amend the current proposal.</div>`;
+  });
+}
+
 async function confirmTaskProposal() {
   if (!pendingTaskProposal || !pendingTaskProposal.length) return;
   const responseEl = document.getElementById('sensei-response');
