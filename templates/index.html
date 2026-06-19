@@ -235,6 +235,15 @@
         <p class="panel__subtitle">Wisdom for your 一日 (ichijitsu — one day)</p>
       </div>
 
+      <div class="sensei-goal-card">
+        <label class="form-label" for="sensei-goal-input">目標 · Current Goal</label>
+        <div class="sensei-goal-card__row">
+          <input type="text" id="sensei-goal-input" class="ink-input" placeholder="e.g. Pass my exam, build strength, finish a project" />
+          <button class="btn-ink btn-ink--sm" onclick="saveSenseiGoal()">保存 · Save</button>
+        </div>
+        <p id="sensei-goal-feedback" class="sensei-goal-card__hint">Set a goal so Sensei can tailor recommendations while still protecting balance.</p>
+      </div>
+
       <div class="sensei-grid">
         <div class="sensei-card" onclick="fetchAI('schedule')">
           <div class="sensei-card__kanji">予</div>

@@ -3,6 +3,7 @@
    ================================================================ */
 
 const API = '';  // same-origin
+const SENSEI_GOAL_KEY = 'jikan-sensei-goal';
 
 // ── State ──────────────────────────────────────────────────────
 const mood = { energy: null, focus: null, mood: null };
@@ -357,6 +358,38 @@ async function loadTodayMood() {
   } catch (e) { /* silent */ }
 }
 
+
+function getSenseiGoal() {
+  const input = document.getElementById('sensei-goal-input');
+  return (input?.value || localStorage.getItem(SENSEI_GOAL_KEY) || '').trim();
+}
+
+function saveSenseiGoal() {
+  const goal = getSenseiGoal();
+  localStorage.setItem(SENSEI_GOAL_KEY, goal);
+  const feedback = document.getElementById('sensei-goal-feedback');
+  if (feedback) {
+    feedback.textContent = goal
+      ? `目標を保存しました · Sensei will guide you toward: ${goal}`
+      : 'Goal cleared. Sensei will give balanced general guidance.';
+  }
+}
+window.saveSenseiGoal = saveSenseiGoal;
+
+function loadSenseiGoal() {
+  const input = document.getElementById('sensei-goal-input');
+  if (!input) return;
+  input.value = localStorage.getItem(SENSEI_GOAL_KEY) || '';
+}
+
+function buildAIContext() {
+  return {
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    local_datetime: new Date().toISOString(),
+    goal: getSenseiGoal()
+  };
+}
+
 // ── AI SENSEI ───────────────────────────────────────────────────
 async function fetchAI(type) {
   zenSound('sensei');
@@ -371,10 +404,7 @@ async function fetchAI(type) {
     </div>`;
 
   try {
-    const aiContext = {
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      local_datetime: new Date().toISOString()
-    };
+    const aiContext = buildAIContext();
     const res = await fetch(`${API}${endpoints[type]}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -408,7 +438,7 @@ async function chatWithSensei() {
     const res = await fetch(`${API}/api/ai/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: msg })
+      body: JSON.stringify({ message: msg, ...buildAIContext() })
     });
     const data = await res.json();
     responseEl.innerHTML = `
@@ -431,10 +461,7 @@ async function createTasksWithSensei() {
   const responseEl = document.getElementById('sensei-response');
   responseEl.innerHTML = `<div class="sensei-loading"><div class="sensei-loading__brush">筆</div><p>先生が計画を作成中 · Sensei is creating tasks...</p></div>`;
   try {
-    const aiContext = {
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      local_datetime: new Date().toISOString()
-    };
+    const aiContext = buildAIContext();
     const payload = { message: msg, dry_run: true, ...aiContext };
     if (pendingTaskProposal?.length && isAmendingTaskProposal) {
       payload.proposed_tasks = pendingTaskProposal;
@@ -602,6 +629,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const chatInput = document.getElementById('chat-input');
   if (chatInput) {
     chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') chatWithSensei(); });
+  }
+  loadSenseiGoal();
+  const goalInput = document.getElementById('sensei-goal-input');
+  if (goalInput) {
+    goalInput.addEventListener('keydown', e => { if (e.key === 'Enter') saveSenseiGoal(); });
   }
   const createBtn = document.getElementById('sensei-create-btn');
   if (createBtn) {
